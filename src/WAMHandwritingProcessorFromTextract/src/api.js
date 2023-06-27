@@ -17,6 +17,7 @@ const {
   createEssayObject,
   getTokenForAuthentication,
   getCurrentStudentUser,
+  createEssayObjects,
 } = require("./utils");
 const { request } = require("./appSyncRequest");
 const { createNotification } = require("./graphql/bpmutations");
@@ -81,27 +82,27 @@ const processEssays = async (essays, activity, prompt, ENDPOINT, logRepo) => {
         if (token) {
           const bearerToken = `Bearer ${token}`;
           console.log("the token is", bearerToken);
-          studentsPageMapping.push([student.id, essay.essayPageNumber]);
+          studentsPageMapping.push([student.id, essay.pages]);
           console.log("Creating student essay.");
-          const essayId = await createEssay(
-            activity,
-            prompt,
-            student,
-            ENDPOINT,
-            bearerToken
-          );
-          if (essayId) {
-            console.log("Saving student's writing");
-            await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
-            console.log("Submitting student's essay");
-            await submitEssay(essayId, ENDPOINT, bearerToken);
-          } else {
-            updateMemoryLog(
-              `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`,
-              logRepo,
-              true
-            );
-          }
+          // const essayId = await createEssay(
+          //   activity,
+          //   prompt,
+          //   student,
+          //   ENDPOINT,
+          //   bearerToken
+          // );
+          // if (essayId) {
+          //   console.log("Saving student's writing");
+          //   await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
+          //   console.log("Submitting student's essay");
+          //   await submitEssay(essayId, ENDPOINT, bearerToken);
+          // } else {
+          //   updateMemoryLog(
+          //     `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`,
+          //     logRepo,
+          //     true
+          //   );
+          // }
         }
       } else {
         updateMemoryLog(
@@ -370,15 +371,10 @@ const processTextactResult = async (textractClient, jobId) => {
     }
     nextToken = result.NextToken;
   } while (nextToken);
-  const essays = [];
+  
   // iterating through the map to get the final essays.
   // eslint-disable-next-line no-unused-vars
-  for (let [page, essayInLines] of pagesContentMap) {
-    // mapping textract lines to essay objects.
-    const essayObject = createEssayObject(essayInLines, page);
-    essays.push(essayObject);
-  }
-  return essays;
+  return createEssayObjects(pagesContentMap)
 };
 
 const createUserNotification = async (userId) => {

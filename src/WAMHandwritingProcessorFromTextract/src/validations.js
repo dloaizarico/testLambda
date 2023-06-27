@@ -83,7 +83,7 @@ const validateEvent = (event) => {
             jobsToProcess.push({
               jobID: objectData.JobId,
               activityID,
-              fileURL: `${documentLocation[0]}/${documentLocation[1]}/${documentLocation[2]}`,
+              fileURL: objectData.DocumentLocation.S3ObjectName,
               userID: objectData.JobTag,
             });
           } else {
