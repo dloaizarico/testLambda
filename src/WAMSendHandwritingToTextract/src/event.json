@@ -180,6 +180,6 @@
       "domainName": "ib8ruhxgmd.execute-api.ap-southeast-2.amazonaws.com",
       "apiId": "ib8ruhxgmd"
   },
-  "body": "{\"activityID\":\"189b2e21-f26f-407e-b392-89e6a0e1b390\",\"userID\":\"1b3c5546-4d73-4821-ada3-02022d4d9823\"}",
+  "body": "{\"activityID\":\"5381be36-f0a0-4f16-932c-0f5971dac67e\",\"userID\":\"1b3c5546-4d73-4821-ada3-02022d4d9823\"}",
   "isBase64Encoded": false
 }

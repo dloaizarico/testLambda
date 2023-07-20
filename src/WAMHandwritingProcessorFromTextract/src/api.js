@@ -1,6 +1,7 @@
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
+const { logger } = require("./logger");
 const axios = require("axios");
 const { v4: uuidv4 } = require("uuid");
 const dayjs = require("dayjs");
@@ -10,11 +11,10 @@ const {
   getSystemParameter,
   getStudentBySchoolYearAndStudentID,
   getUserByUserId,
+  getStudentsInAClassroom,
 } = require("./graphql/bpqueries");
 const {
-  updateMemoryLog,
   errorHandler,
-  createEssayObject,
   getTokenForAuthentication,
   getCurrentStudentUser,
   createEssayObjects,
@@ -30,6 +30,9 @@ const {
   sender,
   expiryDaysForNotification,
   notificationMessage,
+  fuzzyMatchingLambdaName,
+  matchStudentByNameUsingIndexesMethod,
+  matchStudentByNameWithStrictEqualityMethod,
 } = require("./constants");
 
 /**
@@ -38,32 +41,64 @@ const {
  * @param activity
  * @param prompt
  * @param ENDPOINT: faculty's API endpoint fetched as a param.
- * @param logRepo: repo with all the logs of the process.
+ * @param activityClassroomStudents list of students that are part of the classroom in which the activity was created, this is used for name matching.
  */
-const processEssays = async (essays, activity, prompt, ENDPOINT, logRepo) => {
-  console.log(
+const processEssays = async (
+  essays,
+  activity,
+  prompt,
+  ENDPOINT,
+  activityClassroomStudents,
+  lambdaService
+) => {
+  const studentsHandWritingLog = [];
+  logger.debug(
     `Essay process started: ${new Date().toLocaleDateString()}-${new Date().toTimeString()}  \n`
   );
-  const studentsPageMapping = [];
-  console.log(`Total essays received: ${essays.length}`);
+  const studentsPageMapping = new Map();
+
+  logger.debug(`Total essays received: ${essays.length}`);
   if (essays && essays.length > 0) {
     for (let i = 0; i < essays.length; i++) {
       const essay = essays[i];
-      console.log(
+      const studentHandWritingLog = {
+        essayFromTextract: essay.text,
+        studentNameFromTextract: `${essay.firstName} ${essay.lastName}`,
+        dobFromTextract: essay.DOB,
+        firstName: essay.firstName,
+        lastName: essay.lastName,
+        DOB: essay.DOB,
+      };
+      logger.debug(
         `Processing student: ${essay.firstName}, ${essay.lastName}, - DOB ${essay.DOB}   \n`
       );
       // Validate essay object, first name, last name and DOB are correct plus the text is a proper one.
-      let didEssayPassValidations = validateEssay(essay, logRepo);
-      const student = await getStudentByNameLastNameAndDOB(
+      let didEssayPassValidations = validateEssay(essay);
+      let studentID = await getStudentByNameLastNameAndDOB(
         essay.firstName,
         essay.lastName,
         essay.DOB
       );
-      if (student && student.id && didEssayPassValidations) {
+
+      // if the studentID was not found through firstName, lastName, birthDate, it's used the fuzzy lambda to try to match the student input with the current classroom.
+      if (!studentID || studentID === "") {
+        studentID = await fuzzyMatchingToStudents(
+          {
+            firstName: essay.firstName,
+            lastName: essay.lastName,
+            birthDate: essay.DOB,
+          },
+          activityClassroomStudents,
+          lambdaService
+        );
+      }
+
+      if (studentID && didEssayPassValidations) {
+        studentHandWritingLog.studentID = studentID;
         const schoolStudentQueryInput = {
           schoolID: activity?.schoolID,
           schoolYearStudentID: {
-            eq: { schoolYear: new Date().getFullYear(), studentID: student.id },
+            eq: { schoolYear: new Date().getFullYear(), studentID: studentID },
           },
         };
         const schoolStudents = await fetchAllNextTokenData(
@@ -71,74 +106,86 @@ const processEssays = async (essays, activity, prompt, ENDPOINT, logRepo) => {
           getStudentBySchoolYearAndStudentID,
           schoolStudentQueryInput
         );
-        const schoolStudentEmail = getCurrentStudentUser(
-          schoolStudents,
-          logRepo
-        );
-        const token = await getTokenForAuthentication(
-          schoolStudentEmail,
-          logRepo
-        );
-        if (token) {
-          const bearerToken = `Bearer ${token}`;
-          console.log("the token is", bearerToken);
-          studentsPageMapping.push([student.id, essay.pages]);
-          console.log("Creating student essay.");
-          // const essayId = await createEssay(
-          //   activity,
-          //   prompt,
-          //   student,
-          //   ENDPOINT,
-          //   bearerToken
-          // );
-          // if (essayId) {
-          //   console.log("Saving student's writing");
-          //   await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
-          //   console.log("Submitting student's essay");
-          //   await submitEssay(essayId, ENDPOINT, bearerToken);
-          // } else {
-          //   updateMemoryLog(
-          //     `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`,
-          //     logRepo,
-          //     true
-          //   );
-          // }
+        const schoolStudentEmail = getCurrentStudentUser(schoolStudents);
+        if (schoolStudentEmail && schoolStudentEmail !== "") {
+          const token = await getTokenForAuthentication(schoolStudentEmail);
+          if (token) {
+            const bearerToken = `Bearer ${token}`;
+            studentsPageMapping.set(studentID, essay.pages);
+            const essayId = await createEssay(
+              activity,
+              prompt,
+              studentID,
+              ENDPOINT,
+              bearerToken
+            );
+            if (essayId) {
+              await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
+              await submitEssay(essayId, ENDPOINT, bearerToken);
+              studentHandWritingLog.completed = true;
+            } else {
+              logger.info(
+                `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
+              );
+              studentHandWritingLog.completed = false;
+            }
+          } else {
+            logger.info(
+              `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
+            );
+            logger.debug(
+              `Token retrieved as undefined.${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, ${token}`
+            );
+            studentHandWritingLog.completed = false;
+          }
+        } else {
+          logger.info(
+            `The student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} does not have an active user in the school, please contact support to get a valid login. \n`
+          );
+          logger.debug(
+            `username for student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} is null`
+          );
+          studentHandWritingLog.completed = false;
         }
       } else {
-        updateMemoryLog(
-          `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`,
-          logRepo,
-          true
+        studentsPageMapping.set(
+          `${essay.firstName?.toLowerCase()}${essay.lastName?.toLowerCase()}${
+            essay.DOB
+          }`,
+          essay.pages
         );
-        updateMemoryLog(
-          `----------------------------------------------------------------- \n`,
-          logRepo,
-          true
-        );
-      }
 
-      console.log(
+        logger.info(
+          `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
+        );
+        logger.info(
+          `----------------------------------------------------------------- \n`
+        );
+        studentHandWritingLog.completed = false;
+      }
+      studentsHandWritingLog.push(studentHandWritingLog);
+
+      logger.debug(
         `Process finish for student: ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}   \n`
       );
     }
   } else {
-    updateMemoryLog(
-      `No essays were found, please contact the support team. \n`,
-      logRepo,
-      true
-    );
+    logger.info(`No essays were found, please contact the support team. \n`);
   }
-  console.log(
+  logger.debug(
     `Essays process is finished: ${new Date().toLocaleDateString()}   \n`
   );
-  return studentsPageMapping;
+  return {
+    studentsPageMapping,
+    studentsHandWritingLog,
+  };
 };
 
 // It calls faculty's api to create the student essay.
 const createEssay = async (
   activity,
   prompt,
-  student,
+  studentID,
   ENDPOINT,
   bearerToken
 ) => {
@@ -148,7 +195,7 @@ const createEssay = async (
     activityId: activity?.id,
     classroomId: activity?.classroomID,
     schoolId: activity?.schoolID,
-    studentId: student?.id,
+    studentId: studentID,
     taskDetails: {
       taskType: prompt?.taskType?.toUpperCase(),
       essayPrompt: prompt?.promptName,
@@ -163,11 +210,11 @@ const createEssay = async (
       },
     });
 
-    console.log("essayId returned", result?.data?.essayId);
+    logger.debug(`essayId returned,${result?.data?.essayId}`);
     return result?.data?.essayId;
   } catch (error) {
     const { message: errorMessage } = errorHandler(error);
-    console.log(
+    logger.debug(
       `There was an error while trying to create the essay: ${errorMessage}`
     );
   }
@@ -184,11 +231,11 @@ const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
         authorization: bearerToken,
       },
     });
-    console.log("essayId", result?.data?.essayId);
+    logger.debug(`essayId, ${result?.data?.essayId}`);
     return result?.data?.essayId;
   } catch (error) {
     const { message: errorMessage } = errorHandler(error);
-    console.log(
+    logger.debug(
       `There was an error while trying to create the essay: ${errorMessage}`
     );
   }
@@ -204,11 +251,11 @@ const submitEssay = async (essayId, ENDPOINT, bearerToken) => {
         authorization: bearerToken,
       },
     });
-    console.log("essayId", result?.data?.essayId);
+    logger.debug(`essayId, ${result?.data?.essayId}`);
     return result?.data?.essayId;
   } catch (error) {
     const { message: errorMessage } = errorHandler(error);
-    console.log(
+    logger.debug(
       `There was an error while trying to create the essay: ${errorMessage}`
     );
   }
@@ -221,12 +268,78 @@ const getSystemParameterByKey = async (key) => {
       query: getSystemParameter,
       variables: input,
     });
-    console.log("sysparam result", result);
     const systemParameter = result.data.getSystemParameter;
     return systemParameter;
   } catch (error) {
-    console.log("error when fetching system param", error);
+    logger.error(`error when fetching system param, ${error}`);
     return null;
+  }
+};
+
+const fuzzyMatchingToStudents = async (
+  student,
+  matchingList,
+  lambdaService
+) => {
+  try {
+    let input = {
+      method: matchStudentByNameUsingIndexesMethod,
+      student: student,
+      matchingList: matchingList,
+    };
+    let params = {
+      FunctionName: `${fuzzyMatchingLambdaName}-${process.env.ENV}`,
+      Payload: JSON.stringify({
+        input,
+      }),
+    };
+
+    // trying fuzzy matching with indexes method first.
+    let result = await lambdaService.invoke(params).promise();
+    let payload = JSON.parse(result.Payload);
+    let data = JSON.parse(payload.body);
+    if (
+      data &&
+      data.foundStudentsArray &&
+      data.foundStudentsArray.length === 1
+    ) {
+      return data.foundStudentsArray[0].studentID;
+    }
+
+    // trying fuzzy matching with strict equality method
+    input = {
+      method: matchStudentByNameWithStrictEqualityMethod,
+      student: student,
+      matchingList: matchingList,
+    };
+
+    params = {
+      FunctionName: `${fuzzyMatchingLambdaName}-${process.env.ENV}`,
+      Payload: JSON.stringify({
+        input,
+      }),
+    };
+
+    result = await lambdaService.invoke(params).promise();
+    payload = JSON.parse(result.Payload);
+    data = JSON.parse(payload.body);
+
+    if (data && data.possibleMatches && data.possibleMatches.length === 1) {
+      const possibleMatch = data.possibleMatches[0];
+      logger.debug(
+        `strict equality found: ${possibleMatch.birthDateSimiliratyratio}`
+      );
+      return possibleMatch.student.studentID;
+    }
+
+    logger.debug(`Fuzzy matching didn't return any results.`);
+    return null;
+  } catch (error) {
+    logger.error(
+      `Error when trying to find the fuzzy matching name ${JSON.stringify(
+        error
+      )} - ${error}`
+    );
   }
 };
 
@@ -242,12 +355,54 @@ const getStudentByNameLastNameAndDOB = async (firstName, lastName, DOB) => {
       input
     );
 
-    if (result.length === 1) {
-      return result[0];
+    if (result && result.length === 1) {
+      return result[0].id;
+    }
+    return null;
+  } catch (error) {
+    logger.debug(
+      `Error when trying to find the student by name, last name and DOB ${JSON.stringify(
+        error
+      )}, ${error}`
+    );
+    return null;
+  }
+};
+
+const getStudentsInAClassroomAPI = async (classroomID) => {
+  let input = {
+    classroomID,
+  };
+  try {
+    const result = await fetchAllNextTokenData(
+      "getStudentsByClassroom",
+      getStudentsInAClassroom,
+      input
+    );
+
+    if (result && result.length > 0) {
+      return result
+        .filter((classroomStudent) => classroomStudent.student)
+        .map((classroomStudent) => {
+          return {
+            classroomStudentID: classroomStudent.id,
+            firstName: classroomStudent.student.firstName,
+            lastName: classroomStudent.student.lastName,
+            middleName: classroomStudent.student.middleName,
+            gender: classroomStudent.student.gender,
+            studentID: classroomStudent.student.id,
+            studentUniqueIdentifier:
+              classroomStudent.student.studentUniqueIdentifier,
+            yearLevelID: classroomStudent.student.yearLevelID,
+            birthDate: classroomStudent.student.birthDate,
+          };
+        });
+    } else {
+      return [];
     }
   } catch (error) {
-    console.log(
-      `Error when trying to find the student by name, last name and DOB ${JSON.stringify(
+    logger.debug(
+      `Error when trying to find the students in the classroom ${JSON.stringify(
         error
       )}`
     );
@@ -268,7 +423,13 @@ const fetchAllNextTokenData = async (queryName, query, input) => {
         variables: input,
       });
 
-      data = [...data, ...searchResults.data[queryName].items];
+      if (
+        searchResults &&
+        searchResults.data &&
+        searchResults.data[queryName]
+      ) {
+        data = [...data, ...searchResults.data[queryName].items];
+      }
 
       nextToken = searchResults.data[queryName].nextToken;
     } while (nextToken != null);
@@ -278,7 +439,7 @@ const fetchAllNextTokenData = async (queryName, query, input) => {
   return data;
 };
 
-const getActivity = async (ddbClient, activityID, logRepo) => {
+const getActivity = async (ddbClient, activityID) => {
   const params = {
     TableName: `${ACTIVITY_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
     KeyConditionExpression: `id = :id`,
@@ -292,25 +453,17 @@ const getActivity = async (ddbClient, activityID, logRepo) => {
     if (queryResult && queryResult.Items && queryResult.Items.length > 0) {
       return queryResult.Items[0];
     } else {
-      updateMemoryLog(
-        `The activity was not found please contact support.  \n`,
-        logRepo,
-        true
-      );
+      logger.info(`The activity was not found please contact support.  \n`);
       return null;
     }
   } catch (error) {
-    updateMemoryLog(
-      `The activity was not found please contact support.  \n`,
-      logRepo,
-      true
-    );
-    console.error(`error while fetching the activity ${JSON.stringify(error)}`);
+    logger.info(`The activity was not found please contact support.  \n`);
+    logger.error(`error while fetching the activity ${JSON.stringify(error)}`);
     return null;
   }
 };
 
-const getPrompt = async (ddbClient, promptID, logRepo) => {
+const getPrompt = async (ddbClient, promptID) => {
   const params = {
     TableName: `${PROMPT_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
     KeyConditionExpression: `id = :id`,
@@ -324,20 +477,16 @@ const getPrompt = async (ddbClient, promptID, logRepo) => {
     if (queryResult && queryResult.Items && queryResult.Items.length > 0) {
       return queryResult.Items[0];
     } else {
-      updateMemoryLog(
-        `The prompt related to the activity was not found please contact support.  \n`,
-        logRepo,
-        true
+      logger.info(
+        `The prompt related to the activity was not found please contact support.  \n`
       );
       return null;
     }
   } catch (error) {
-    updateMemoryLog(
-      `The prompt related to the activity was not found please contact support.  \n`,
-      logRepo,
-      true
+    logger.info(
+      `The prompt related to the activity was not found please contact support.  \n`
     );
-    console.error(`error while fetching the prompt ${JSON.stringify(error)}`);
+    logger.error(`error while fetching the prompt ${JSON.stringify(error)}`);
     return null;
   }
 };
@@ -371,10 +520,10 @@ const processTextactResult = async (textractClient, jobId) => {
     }
     nextToken = result.NextToken;
   } while (nextToken);
-  
+
   // iterating through the map to get the final essays.
   // eslint-disable-next-line no-unused-vars
-  return createEssayObjects(pagesContentMap)
+  return createEssayObjects(pagesContentMap);
 };
 
 const createUserNotification = async (userId) => {
@@ -414,20 +563,30 @@ const createUserNotification = async (userId) => {
       variables: { input },
     });
   } catch (error) {
-    console.error(
+    logger.error(
       `error when creating the notification record, ${JSON.stringify(error)}`
     );
   }
 };
 
-const createLogRecord = async (ddb, logObject, keyWithoutPublicPrefix) => {
+const createLogRecord = async (
+  ddb,
+  logObject,
+  generalLogFileKey,
+  studentsHandWritingLog,
+  studentsFileMap,
+  originalFileURL,
+  wasLogUploaded
+) => {
   let createdAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
   let updatedAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+  const uploadID = uuidv4();
   const HANDWRITINGLOG_TABLE_NAME = "HandwritingLog";
+  const STUDENTS_HANDWRITINGLOG_TABLE_NAME = "StudentHandwritingLog";
   if (logObject) {
     try {
       const input = {
-        id: uuidv4(),
+        id: uploadID,
         createdAt,
         updatedAt,
         __typename: HANDWRITINGLOG_TABLE_NAME,
@@ -435,16 +594,54 @@ const createLogRecord = async (ddb, logObject, keyWithoutPublicPrefix) => {
         uploadUserID: logObject.uploadUserID,
         schoolID: logObject.schoolID,
         numberOfStudents: logObject.numberOfStudents,
-        fileUrl: keyWithoutPublicPrefix,
-        studentsPageMapping: JSON.stringify(logObject.studentsPageMapping),
+        fileUrl: wasLogUploaded ? generalLogFileKey : "",
       };
       const params = {
         TableName: `${HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
         Item: input,
       };
       await ddb.put(params).promise();
+
+      studentsHandWritingLog.forEach(async (studentHandwritingLog) => {
+        const key = studentHandwritingLog.studentID
+          ? studentHandwritingLog.studentID
+          : `${studentHandwritingLog.firstName?.toLowerCase()}${studentHandwritingLog.lastName?.toLowerCase()}${
+              studentHandwritingLog.DOB
+            }`;
+        let splitFileURL = studentsFileMap?.get(key);
+        if (splitFileURL) {
+          splitFileURL = splitFileURL.replace("public/", "");
+        } else {
+          splitFileURL = originalFileURL.replace("public/", "");
+        }
+        createdAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+        updatedAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+        const studentHandwritingLogInput = {
+          id: uuidv4(),
+          uploadID: uploadID,
+          createdAt,
+          updatedAt,
+          __typename: STUDENTS_HANDWRITINGLOG_TABLE_NAME,
+          essayFromTextract: studentHandwritingLog.essayFromTextract,
+          studentNameFromTextract:
+            studentHandwritingLog.studentNameFromTextract,
+          dobFromTextract: studentHandwritingLog.dobFromTextract,
+          splitFileS3URL: splitFileURL,
+          completed: studentHandwritingLog.completed,
+        };
+
+        if (studentHandwritingLog.studentID) {
+          studentHandwritingLogInput.studentID =
+            studentHandwritingLog.studentID;
+        }
+        const params = {
+          TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+          Item: studentHandwritingLogInput,
+        };
+        await ddb.put(params).promise();
+      });
     } catch (error) {
-      console.error(
+      logger.error(
         `error when creating the log record, ${JSON.stringify(error)}`
       );
     }
@@ -460,4 +657,5 @@ module.exports = {
   processTextactResult,
   createLogRecord,
   createUserNotification,
+  getStudentsInAClassroomAPI,
 };

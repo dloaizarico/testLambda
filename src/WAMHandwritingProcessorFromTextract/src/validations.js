@@ -1,10 +1,9 @@
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
-
-const { updateMemoryLog } = require("./utils");
+const { logger } = require("./logger");
 
 // It validates essay mapped to an object after textract process.
-const validateEssay = (essay, logRepo) => {
+const validateEssay = (essay) => {
   let result = [];
   if (!essay) {
     result.push("Essay has not been processed, please contact support.\n");
@@ -49,12 +48,10 @@ const validateEssay = (essay, logRepo) => {
     return true;
   }
   // updating log.
-  updateMemoryLog(
+  logger.info(
     `Essay by ${essay.firstName} ${essay.lastName} ${
       essay.DOB
-    } didn't pass validations: \n ${result.join("\n")}`,
-    logRepo,
-    true
+    } didn't pass validations: \n ${result.join("\n")}`
   );
 
   return false;
@@ -63,7 +60,6 @@ const validateEssay = (essay, logRepo) => {
 /**
  * This method has two purposes: 1. validate the event data and get the job ids to be processed.
  * @param event data
- * @param logRepo
  *
  */
 const validateEvent = (event) => {
@@ -87,23 +83,23 @@ const validateEvent = (event) => {
               userID: objectData.JobTag,
             });
           } else {
-            console.error(
+            logger.error(
               `The document key does not meet the valid format -public/handwriting/activityID/fileName-  \n`
             );
           }
         } else {
-          console.error(
+          logger.error(
             `The event data does not contain information of the s3 object processed  \n`
           );
         }
       } else {
-        console.error(
+        logger.error(
           `The event data does not contain the attribute Sns, that is required to continue.  \n`
         );
       }
     }
   } else {
-    console.error(`The lambda didn't receive any even data from the SNS.  \n`);
+    logger.error(`The lambda didn't receive any even data from the SNS.  \n`);
   }
   return jobsToProcess;
 };

@@ -3,27 +3,6 @@ Object.defineProperty(exports, "__esModule", {
   value: true,
 });
 exports.getStudentByNameByBirthDate = void 0;
-const getStudentByNameByBirthDate = /* GraphQL */ `
-  query GetStudentByNameByBirthDate(
-    $firstName: String
-    $lastNameBirthDate: ModelStudentByStudentNamesBirthDateCompositeKeyConditionInput
-    $nextToken: String
-  ) {
-    getStudentByNameByBirthDate(
-      firstName: $firstName
-      lastNameBirthDate: $lastNameBirthDate
-      nextToken: $nextToken
-    ) {
-      items {
-        id
-        firstName
-        lastName
-      }
-      nextToken
-    }
-  }
-`;
-exports.getStudentByNameByBirthDate = getStudentByNameByBirthDate;
 const getSystemParameter = /* GraphQL */ `
   query GetSystemParameter($key: String!) {
     getSystemParameter(key: $key) {
@@ -82,33 +61,3 @@ const getUserByUserId =
   }
 `;
 exports.getUserByUserId = getUserByUserId;
-const getStudentsInAClassroom =
-/* GraphQL */
-`
-  query getStudentsInAClassroom(
-    $classroomID: ID!
-    $nextToken: String
-  ) {
-    getStudentsByClassroom(
-      classroomID: $classroomID
-      nextToken: $nextToken
-    ) {
-      items {
-        classroomID
-        id
-        student {
-          birthDate
-          firstName
-          lastName
-          middleName
-          gender
-          id
-          studentUniqueIdentifier
-          yearLevelID
-        }
-      }
-      nextToken
-    }
-  }
-`;
-exports.getStudentsInAClassroom = getStudentsInAClassroom;

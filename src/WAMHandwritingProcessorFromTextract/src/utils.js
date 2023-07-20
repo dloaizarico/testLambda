@@ -7,9 +7,10 @@ const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
 const { CognitoIdentityServiceProvider } = require("aws-sdk");
 const PDFDocument = require("pdf-lib").PDFDocument;
 const { GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { logger } = require("./logger");
 
 // This method finds the current user for the current year for each student.
-const getCurrentStudentUser = (schoolStudents, logRepo) => {
+const getCurrentStudentUser = (schoolStudents) => {
   if (
     schoolStudents &&
     schoolStudents.length > 0 &&
@@ -19,7 +20,7 @@ const getCurrentStudentUser = (schoolStudents, logRepo) => {
   ) {
     return schoolStudents[0].user.items[0].email;
   }
-  updateMemoryLog(`No user record found for this student`, logRepo, true);
+  logger.info(`No user record found for this student`);
   return null;
 };
 
@@ -81,7 +82,7 @@ const ParseDOB = (dob) => {
   try {
     return getDate(finalDate);
   } catch (error) {
-    console.log(
+    logger.debug(
       `it was not possible to cast a date, the received value was ${dob}${error}`
     );
   }
@@ -92,8 +93,8 @@ const ParseDOB = (dob) => {
 const createEssayObjects = (pagesContentMap) => {
   const textractEssays = [];
   let essay;
+
   for (let [page, lines] of pagesContentMap) {
-    console.log(validateIfItIsANewEssay(lines));
     if (validateIfItIsANewEssay(lines)) {
       // Defines if the essay has been read and if it's need to be added to the essay arrays.
       if (page !== 1) {
@@ -248,43 +249,6 @@ const validateIfItIsANewEssay = (lines) => {
   return false;
 };
 
-/** This method is used for logging events during the process
- * message: log
- * repository: array that is shared across all methods.
- * shouldUpdateConsole: if it's true, it will print the log in the console.
- */
-
-const updateMemoryLog = (message, repository, shouldUpdateConsole) => {
-  if (repository) {
-    repository.push(message);
-  }
-  if (shouldUpdateConsole) {
-    console.log(message);
-  }
-};
-
-// This method creates the final log in the s3 activity folder.
-const createLogFileInS3Bucket = async (s3Client, activityID, logRepo) => {
-  try {
-    if (logRepo && logRepo.length > 0) {
-      const key = `public/handwriting/${activityID}/${ParseDOB(
-        new Date()
-      )}-${new Date().toTimeString()}-UploadsLog.txt`;
-      const keyWithoutPublicPrefix = `handwriting/${activityID}/${ParseDOB(
-        new Date()
-      )}-${new Date().toTimeString()}-UploadsLog.txt`;
-
-      await createFileInBucket(s3Client, key, logRepo.join(""));
-      return keyWithoutPublicPrefix;
-    } else {
-      console.log("The log repo is empty.");
-      return "";
-    }
-  } catch (error) {
-    console.log(`Unable to upload the log file of the process. ${error}`);
-  }
-};
-
 const createFileInBucket = async (s3Client, key, fileContent) => {
   try {
     const input = {
@@ -296,7 +260,7 @@ const createFileInBucket = async (s3Client, key, fileContent) => {
     const command = new PutObjectCommand(input);
     await s3Client.send(command);
   } catch (error) {
-    console.log(`Unable to upload the file into s3. ${error}`);
+    logger.error(`Unable to upload the file into s3. ${error}`);
   }
 };
 
@@ -363,11 +327,7 @@ const getTokenForAuthentication = async (email) => {
     ) {
       return tokens.AuthenticationResult.IdToken;
     } else {
-      updateMemoryLog(
-        `Unable to get the token for this student ${email} \n`,
-        logRepo,
-        true
-      );
+      logger.info(`Unable to get the token for this student ${email} \n`);
       return null;
     }
   }
@@ -388,13 +348,10 @@ const splitFilePerStudent = async (
   studentsPageMapping
 ) => {
   try {
-    const studentsFileMap = [];
+    const studentsFileMap = new Map();
     // First it checks if there's only a pdf with an student's essay or a single image file (PNG, JPEG)
-    if (studentsPageMapping.length === 1) {
-      console.log(
-        "The job is related to a single file, returning original file URL"
-      );
-      return [[studentEssay[0][0], fileUrl]];
+    if (studentsPageMapping.size === 1) {
+      return;
     } else {
       // If it's a pdf with multiple essays...
       const command = new GetObjectCommand({
@@ -402,20 +359,13 @@ const splitFilePerStudent = async (
         Key: fileUrl,
       });
       // It downloads the original file uploaded by the teacher.
-      const response = await s3Client.send(command)
-      
-      let pdfString =await response.Body?.transformToString("base64");
-      
-      console.log(fileUrl);
-      console.log("Original S3 file downloaded.");
+      const response = await s3Client.send(command);
+
+      let pdfString = await response.Body?.transformToString("base64");
       // It upload the content into a PDFDocument so it's easy to manipulate it.
       let pdfContent = await PDFDocument.load(pdfString);
       // each studentPageMapping is an array of [[StudentID, [pages]]]
-      studentsPageMapping.forEach(async (studentEssay) => {
-        const pages = studentEssay[1];
-        console.log(
-          `Student ${studentEssay[0]}, number of pages: ${pages.length}`
-        );
+      for (let [studentID, pages] of studentsPageMapping.entries()) {
         pages.sort((a, b) => a - b);
         // It creates the inidividual essay document.
         const individualEssay = await PDFDocument.create();
@@ -423,36 +373,30 @@ const splitFilePerStudent = async (
         for (let index = 0; index < pages.length; index++) {
           const page = pages[index];
           const [copiedPage] = await individualEssay.copyPages(pdfContent, [
-            page,
+            page - 1,
           ]);
           individualEssay.addPage(copiedPage);
         }
         // Save the PDF object to get the bytes.
         const individualEssayBytes = await individualEssay.save();
-        console.log(`individualEssayBytes saved`);
         // Upload the file to s3.
-        const s3FileKey = `public/handwriting/${activityID}/${studentEssay[0]}/${studentEssay[0]}.pdf`;
-        console.log(`key ${s3FileKey}`);
+        const s3FileKey = `public/handwriting/${activityID}/${studentID}/${studentID}.pdf`;
         await createFileInBucket(s3Client, s3FileKey, individualEssayBytes);
-        console.log(`file saved in s3`);
         // Return the file key so it's saved in the log record.
-        studentsFileMap.push([studentEssay[0], s3FileKey]);
-      });
+        studentsFileMap.set(studentID, s3FileKey);
+      }
     }
-    console.log(`studentsFileMap ${studentsFileMap}`);
     return studentsFileMap;
   } catch (err) {
-    console.error(err);
+    logger.error(err);
   }
 };
 
 module.exports = {
   splitFilePerStudent,
   createEssayObjects,
-  updateMemoryLog,
   ParseDOB,
   errorHandler,
-  createLogFileInS3Bucket,
   getTokenForAuthentication,
   getCurrentStudentUser,
 };

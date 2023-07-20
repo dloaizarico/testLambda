@@ -1,0 +1,137 @@
+{
+  "Records": [
+    {
+      "eventID": "d8007b53a29f7e5e40717675b2e00b11",
+      "eventName": "MODIFY",
+      "eventVersion": "1.1",
+      "eventSource": "aws:dynamodb",
+      "awsRegion": "ap-southeast-2",
+      "dynamodb": {
+        "ApproximateCreationDateTime": 1689129493,
+        "Keys": {
+          "id": {
+            "S": "c070db9d-c621-4f9f-ab44-432ff8781c25"
+          }
+        },
+        "NewImage": {
+          "ealdProgress": {
+            "BOOL": false
+          },
+          "__typename": {
+            "S": "School"
+          },
+          "stateID": {
+            "S": "07372c18-717f-494b-a08f-3d09b2b7e1c8"
+          },
+          "overridePAMAccess": {
+            "BOOL": true
+          },
+          "overrideWAMAccess": {
+            "BOOL": true
+          },
+          "countryID": {
+            "S": "11c23bd3-da6d-4529-b009-ada63d12ca11"
+          },
+          "dummy": {
+            "S": "school"
+          },
+          "createdAt": {
+            "S": "2023-04-06T02:00:53.644Z"
+          },
+          "salesForceAccountID": {
+            "S": "001I8000002sSv0"
+          },
+          "logo": {
+            "M": {
+              "bucket": {
+                "S": "bpedsysuserstorage174855-prod"
+              },
+              "region": {
+                "S": "ap-southeast-2"
+              },
+              "key": {
+                "S": "images/schools/6105863c-3014-4444-9752-a17d610d6875.jpg"
+              }
+            }
+          },
+          "motto": {
+            "S": "Seek to Understand"
+          },
+          "id": {
+            "S": "c070db9d-c621-4f9f-ab44-432ff8781c25"
+          },
+          "schoolName": {
+            "S": "SFOA"
+          },
+          "studentLoginEnabled": {
+            "BOOL": true
+          },
+          "updatedAt": {
+            "S": "2023-07-12T02:35:34.019Z"
+          }
+        },
+        "OldImage": {
+          "ealdProgress": {
+            "BOOL": false
+          },
+          "__typename": {
+            "S": "School"
+          },
+          "stateID": {
+            "S": "07372c18-717f-494b-a08f-3d09b2b7e1c8"
+          },
+          "overridePAMAccess": {
+            "BOOL": true
+          },
+          "overrideWAMAccess": {
+            "BOOL": true
+          },
+          "countryID": {
+            "S": "11c23bd3-da6d-4529-b009-ada63d12ca11"
+          },
+          "dummy": {
+            "S": "school"
+          },
+          "createdAt": {
+            "S": "2023-04-06T02:00:53.644Z"
+          },
+          "salesForceAccountID": {
+            "S": "001I8000002sSv0"
+          },
+          "logo": {
+            "M": {
+              "bucket": {
+                "S": "bpedsysuserstorage174855-prod"
+              },
+              "region": {
+                "S": "ap-southeast-2"
+              },
+              "key": {
+                "S": "images/schools/6105863c-3014-4444-9752-a17d610d6875.jpg"
+              }
+            }
+          },
+          "motto": {
+            "S": "Seek to Understand"
+          },
+          "id": {
+            "S": "c070db9d-c621-4f9f-ab44-432ff8781c25"
+          },
+          "schoolName": {
+            "S": "St Francis Assisi Parish Primary School"
+          },
+          "studentLoginEnabled": {
+            "BOOL": true
+          },
+          "updatedAt": {
+            "S": "2023-07-12T02:35:34.019Z"
+          }
+        },
+        "SequenceNumber": "4817301700000000024193626669",
+        "SizeBytes": 1037,
+        "StreamViewType": "NEW_AND_OLD_IMAGES"
+      },
+      "eventSourceARN": "arn:aws:dynamodb:ap-southeast-2:990939205853:table/School-qmelml425ndobo5xlomfqfhkyi-prod/stream/2020-10-03T02:27:14.867"
+    }
+  ]
+}
