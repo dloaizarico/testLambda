@@ -20,7 +20,7 @@ const getCurrentStudentUser = (schoolStudents) => {
   ) {
     return schoolStudents[0].user.items[0].email;
   }
-  logger.info(`No user record found for this student`);
+  logger.info(`No user record found for this student\n`);
   return null;
 };
 
@@ -69,17 +69,36 @@ const ParseDOB = (dob) => {
   if (!dob) {
     return null;
   }
-  let finalDate;
-  if (typeof dob === "string") {
-    finalDate = new Date(dob);
-    let dateParts = dob.split("/");
-    // month is 0-based, that's why we need dataParts[1] - 1
-    finalDate = new Date(+dateParts[2], dateParts[1] - 1, +dateParts[0]);
-  } else {
-    finalDate = dob;
-  }
 
   try {
+    let finalDate;
+    // validate if the received dob is type date or not.
+    if (dob instanceof Date && !isNaN(dob)) {
+      finalDate = dob;
+    } else {
+      let separator;
+      if (dob.includes(".")) {
+        separator = ".";
+      } else if (dob.includes("-")) {
+        separator = "-";
+      } else if (dob.includes("/")) {
+        separator = "/";
+      } else {
+        logger.debug(
+          "The format of the date is not the expected (dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy)"
+        );
+        return null;
+      }
+
+      if (typeof dob === "string") {
+        finalDate = new Date(dob);
+        let dateParts = dob.split(separator);
+        // month is 0-based, that's why we need dataParts[1] - 1
+        finalDate = new Date(+dateParts[0], dateParts[1] - 1, +dateParts[2]);
+      } else {
+        finalDate = dob;
+      }
+    }
     return getDate(finalDate);
   } catch (error) {
     logger.debug(
@@ -88,130 +107,184 @@ const ParseDOB = (dob) => {
   }
 };
 
+const getFirstNameAndLastName = (fullName) => {
+  if (fullName && fullName !== "") {
+    const splitName = fullName.split(" ");
+    if (splitName && splitName.length === 2) {
+      firstName = splitName[0];
+      lastName = splitName[1];
+    } else if (splitName && splitName.length >= 3) {
+      firstName = splitName[0];
+      lastName = splitName[2];
+    }
+    return { firstName, lastName };
+  }
+  return { firstName: "", lastName: "" };
+};
+
+const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
+  if (type === "NAME") {
+    return string.toUpperCase().includes("NAME :")
+      ? 6
+      : string.toUpperCase().includes("NAME:")
+      ? 5
+      : 4;
+  } else if (type === "DOB") {
+    return string.toUpperCase().includes("DOB :")
+      ? 5
+      : string.toUpperCase().includes("DOB:")
+      ? 4
+      : 3;
+  }
+};
+
 // It maps the textract result to a JSON object.
 // lines are per essay and this is the return object from textract.
 const createEssayObjects = (pagesContentMap) => {
   const textractEssays = [];
   let essay;
+  let isIncorrectTemplate = false;
 
   for (let [page, lines] of pagesContentMap) {
     if (validateIfItIsANewEssay(lines)) {
       // Defines if the essay has been read and if it's need to be added to the essay arrays.
-      if (page !== 1) {
+      if (page !== 1 && !isIncorrectTemplate) {
         textractEssays.push(essay);
         essay = {};
+      } else {
+        isIncorrectTemplate = false;
       }
 
+      // Student's data extracted
       let firstName,
         lastName,
         DOB = "";
 
       // This is used to control from what index it begins the student essay text after textract process.
-      let startIndex;
-      // If the DOB is giving in the second line.
-      if (lines[1] && lines[1].toUpperCase().includes("DOB")) {
-        const name = lines[0].split(" ");
-        // Omitting middle names.
-        if (name.length === 3) {
-          firstName = name[1];
-          lastName = name[2];
-        } else if (name.length === 4) {
-          // Omitting :,=, " " after NAME
-          if (name[1] === ":" || name[1] === "=" || name[1] === " ") {
-            firstName = name[2];
-          } else {
-            firstName = name[1];
-          }
+      let essayStartIndex;
+      // index from where the NAME starts in the string, it's used to extract the name of the student.
+      let nameIndex;
+      // index from where the DOB starts in the string, it's used to extract the DOB of the student.
+      let dobIndex;
+      let fullName;
 
-          lastName = name[3];
-        }
-        const dobArray = lines[1].split(" ");
-        if (dobArray.length === 3) {
-          // Omitting :,=, " " after DOB
-          if (
-            dobArray[1] === ":" ||
-            dobArray[1] === "=" ||
-            dobArray[1] === " "
-          ) {
-            DOB = dobArray[2];
-          } else {
-            if (dobArray[0].toUpperCase().includes("DOB")) {
-              DOB = dobArray[1];
-            }
-          }
-        } else {
-          DOB = dobArray[1].toUpperCase();
-        }
-
-        startIndex = 2;
-      } // if the DOB is in the third line because sometimes textract returns the last name in the second line/
-      else if (lines[2] && lines[2].toUpperCase().includes("DOB")) {
-        const name = lines[0].split(" ");
-
-        if (name && name.length === 2) {
-          firstName = name[1];
-        } else {
-          if (name[0].toUpperCase().includes("NAME")) {
-            firstName = name.slice(1).join("");
-          }
-        }
-        let lastNameArray = lines[1].split(" ");
-        if (lastNameArray && lastNameArray.length === 1) {
-          lastName = lastNameArray[0];
-        }
-        if (lastNameArray && lastNameArray.length === 2) {
-          lastName = lastNameArray[1];
-        }
-        const dobArray = lines[2].split(" ");
-
-        if (dobArray.length === 3) {
-          // Omitting :,=, " " after DOB
-          if (
-            dobArray[1] === ":" ||
-            dobArray[1] === "=" ||
-            dobArray[1] === " "
-          ) {
-            DOB = dobArray[2];
-          }
-        } else {
-          DOB = dobArray[1];
-        }
-        startIndex = 3;
+      if (
+        lines[0] &&
+        lines[0].toUpperCase().includes("DOB") &&
+        lines[0].toUpperCase().includes("NAME")
+      ) {
+        extractedDOBLine = lines[0];
+        nameIndex = lines[0].toUpperCase().indexOf("NAME");
+        dobIndex = lines[0].toUpperCase().indexOf("DOB");
+        const numberOfCharatersToAddToTheInitialNameIndex =
+          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
+        fullName = lines[0]
+          .substring(
+            nameIndex + numberOfCharatersToAddToTheInitialNameIndex,
+            dobIndex
+          )
+          .trim();
+        const numberOfCharatersToAddToTheInitialDOBIndex =
+          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "DOB");
+        DOB = lines[0]
+          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
+          .trim();
+        essayStartIndex = 1;
       }
-      if (firstName) {
-        firstName = firstName.split(".").join("");
-        // replace any \n from textract.
+      // If the DOB is giving in the second line.
+      else if (
+        lines[0] &&
+        lines[0].toUpperCase().includes("NAME") &&
+        lines[1] &&
+        lines[1].toUpperCase().includes("DOB")
+      ) {
+        extractedDOBLine = lines[1];
+        nameIndex = lines[0].toUpperCase().indexOf("NAME");
+        dobIndex = lines[1].toUpperCase().indexOf("DOB");
+        const numberOfCharatersToAddToTheInitialNameIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
+        fullName = lines[0]
+          .substring(nameIndex + numberOfCharatersToAddToTheInitialNameIndex)
+          .trim();
+        const numberOfCharatersToAddToTheInitialDOBIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[1], "DOB");
+        DOB = lines[1]
+          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
+          .trim();
+        essayStartIndex = 2;
+      } // if the DOB is in the third line because sometimes textract returns the last name in the second line/
+      else if (
+        lines[0] &&
+        lines[0].toUpperCase().includes("NAME") &&
+        lines[2] &&
+        lines[2].toUpperCase().includes("DOB")
+      ) {
+        extractedDOBLine = lines[2];
+        nameIndex = lines[0].toUpperCase().indexOf("NAME");
+        dobIndex = lines[2].toUpperCase().indexOf("DOB");
+        const numberOfCharatersToAddToTheInitialNameIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
+        fullName = lines[0]
+          .substring(nameIndex + numberOfCharatersToAddToTheInitialNameIndex)
+          .trim();
+        fullName = `${fullName} ${lines[1]?.trim()}`;
+        const numberOfCharatersToAddToTheInitialDOBIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[2], "DOB");
+        DOB = lines[2]
+          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
+          .trim();
+        essayStartIndex = 3;
+      }
+      const nameStructure = getFirstNameAndLastName(fullName?.trim());
+      firstName = nameStructure.firstName;
+      lastName = nameStructure.lastName;
+
+      if (
+        firstName &&
+        lastName &&
+        DOB &&
+        firstName !== "" &&
+        lastName !== "" &&
+        DOB !== ""
+      ) {
         firstName = firstName.replace(/\n/g, "").trim();
         firstName = formatToProper(firstName);
-      }
-      if (lastName) {
-        lastName = lastName.split(".").join("");
-        // replace any \n from textract.
         lastName = lastName.replace(/\n/g, "").trim();
         lastName = formatToProper(lastName);
-      }
-      if (DOB) {
-        DOB = DOB.split(".").join("");
-        // replace any \n from textract.
-        DOB = DOB.replace(/\n/g, "").trim();
-        DOB = ParseDOB(DOB);
-      }
-      // Getting the essay text.
-      let textArray = lines.slice(startIndex);
-      let cleanedEssayText = "";
-      if (textArray && textArray.length > 0) {
-        // Remove any \n from lines.
-        textArray = textArray.map((line) => line.replace(/\n/g, "").trim());
-        cleanedEssayText = textArray.join("\n");
+
+        if (validateIfDateIsInTheExpectedFormat(DOB)) {
+          // replace any \n from textract.
+          DOB = DOB.replace(/\n/g, "").trim();
+          DOB = ParseDOB(DOB);
+
+          // Getting the essay text.
+          let textArray = lines.slice(essayStartIndex);
+          let cleanedEssayText = "";
+          if (textArray && textArray.length > 0) {
+            // Remove any \n from lines.
+            textArray = textArray.map((line) => line.replace(/\n/g, "").trim());
+            cleanedEssayText = textArray.join("\n");
+          }
+
+          essay = {
+            firstName,
+            lastName,
+            DOB,
+            text: cleanedEssayText,
+            pages: [page],
+          };
+        } else {
+          isIncorrectTemplate = true;
+          logger.info(
+            `Unable to continue with the student ${firstName} ${lastName} at page  ${page}, the DOB extracted is not in the expected format (dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy), date found: ${DOB}\n`
+          );
+        }
+      } else {
+        isIncorrectTemplate = true;
+        logger.info(
+          `We are unable to identify the student info on page ${page}, please check that your paper does not have any extra information like numbers at the borders or headers at the top.\n`
+        );
+        logger.debug(
+          `Incorrect template, extracted from textract is: ${lines}`
+        );
       }
 
-      essay = {
-        firstName,
-        lastName,
-        DOB,
-        text: cleanedEssayText,
-        pages: [page],
-      };
       // it's an extension of an student's essay.
     } else {
       if (essayInLines && essayInLines.length > 0) {
@@ -226,8 +299,19 @@ const createEssayObjects = (pagesContentMap) => {
       }
     }
   }
-  textractEssays.push(essay);
+
+  // for the final essay that was processed, it checks if the template is the correct one. Otherwise, the essay is not added to the array.
+  if (!isIncorrectTemplate) {
+    textractEssays.push(essay);
+  }
+
   return textractEssays;
+};
+
+const validateIfDateIsInTheExpectedFormat = (date) => {
+  // accepts dd/mm/yyyy or dd.mm.yyyy or dd-mm-yyyy
+  const reg = /(0[1-9]|[12][0-9]|3[01])[- /.](0[1-9]|1[012])[- /.](19|20)\d\d/;
+  return !!date?.match(reg);
 };
 
 /**
