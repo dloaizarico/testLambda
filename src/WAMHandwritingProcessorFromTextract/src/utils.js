@@ -94,7 +94,7 @@ const ParseDOB = (dob) => {
         finalDate = new Date(dob);
         let dateParts = dob.split(separator);
         // month is 0-based, that's why we need dataParts[1] - 1
-        finalDate = new Date(+dateParts[0], dateParts[1] - 1, +dateParts[2]);
+        finalDate = new Date(+dateParts[2], dateParts[1] - 1, +dateParts[0]);
       } else {
         finalDate = dob;
       }
@@ -201,11 +201,13 @@ const createEssayObjects = (pagesContentMap) => {
         extractedDOBLine = lines[1];
         nameIndex = lines[0].toUpperCase().indexOf("NAME");
         dobIndex = lines[1].toUpperCase().indexOf("DOB");
-        const numberOfCharatersToAddToTheInitialNameIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
+        const numberOfCharatersToAddToTheInitialNameIndex =
+          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
         fullName = lines[0]
           .substring(nameIndex + numberOfCharatersToAddToTheInitialNameIndex)
           .trim();
-        const numberOfCharatersToAddToTheInitialDOBIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[1], "DOB");
+        const numberOfCharatersToAddToTheInitialDOBIndex =
+          getCharactersToAddBasedOnCurrentDateOrNameString(lines[1], "DOB");
         DOB = lines[1]
           .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
           .trim();
@@ -220,12 +222,14 @@ const createEssayObjects = (pagesContentMap) => {
         extractedDOBLine = lines[2];
         nameIndex = lines[0].toUpperCase().indexOf("NAME");
         dobIndex = lines[2].toUpperCase().indexOf("DOB");
-        const numberOfCharatersToAddToTheInitialNameIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
+        const numberOfCharatersToAddToTheInitialNameIndex =
+          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
         fullName = lines[0]
           .substring(nameIndex + numberOfCharatersToAddToTheInitialNameIndex)
           .trim();
         fullName = `${fullName} ${lines[1]?.trim()}`;
-        const numberOfCharatersToAddToTheInitialDOBIndex = getCharactersToAddBasedOnCurrentDateOrNameString(lines[2], "DOB");
+        const numberOfCharatersToAddToTheInitialDOBIndex =
+          getCharactersToAddBasedOnCurrentDateOrNameString(lines[2], "DOB");
         DOB = lines[2]
           .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
           .trim();
@@ -235,6 +239,16 @@ const createEssayObjects = (pagesContentMap) => {
       firstName = nameStructure.firstName;
       lastName = nameStructure.lastName;
 
+      firstName = firstName.split(".").join("");
+      firstName = firstName.replace(/\n/g, "").trim();
+      firstName = firstName.replace(/\s/g, '')
+      lastName = lastName.split(".").join("");
+      lastName = lastName.replace(/\n/g, "").trim();
+      lastName = lastName.replace(/\s/g, '')
+      DOB = DOB.split(".").join("");
+      // replace any \n from textract.
+      DOB = DOB.replace(/\n/g, "").trim();
+      DOB = DOB.replace(/\s/g, '')
       if (
         firstName &&
         lastName &&
@@ -272,7 +286,7 @@ const createEssayObjects = (pagesContentMap) => {
         } else {
           isIncorrectTemplate = true;
           logger.info(
-            `Unable to continue with the student ${firstName} ${lastName} at page  ${page}, the DOB extracted is not in the expected format (dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy), date found: ${DOB}\n`
+            `Unable to continue with the student ${firstName} ${lastName} at page  ${page}, the DOB extracted is not in the expected format (dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy), date found: ${DOB} \n`
           );
         }
       } else {
