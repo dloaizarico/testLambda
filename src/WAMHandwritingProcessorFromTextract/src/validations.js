@@ -81,6 +81,7 @@ const validateEvent = (event) => {
               activityID,
               fileURL: objectData.DocumentLocation.S3ObjectName,
               userID: objectData.JobTag,
+              uploadedFileName: documentLocation[3]
             });
           } else {
             logger.error(

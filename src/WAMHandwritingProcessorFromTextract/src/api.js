@@ -1,6 +1,5 @@
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
-
 const { logger } = require("./logger");
 const axios = require("axios");
 const { v4: uuidv4 } = require("uuid");
@@ -496,6 +495,7 @@ const processTextactResult = async (textractClient, jobId) => {
   let nextToken = null;
   const maxResults = 100;
   const pagesContentMap = new Map();
+  let pages = 0;
   // Getting all the info for the job by iterating through nextToken.
   do {
     const result = await textractClient
@@ -505,7 +505,7 @@ const processTextactResult = async (textractClient, jobId) => {
         NextToken: nextToken,
       })
       .promise();
-    if (result.Blocks) {
+    if (result && result.Blocks) {
       result.Blocks.forEach((block) => {
         // processing only lines.
         if (block.BlockType === "LINE") {
@@ -518,12 +518,20 @@ const processTextactResult = async (textractClient, jobId) => {
         }
       });
     }
+    if (result && result.DocumentMetadata) {
+      pages =
+        pages + result.DocumentMetadata.Pages
+          ? result.DocumentMetadata.Pages
+          : 0;
+    }
     nextToken = result.NextToken;
   } while (nextToken);
 
   // iterating through the map to get the final essays.
   // eslint-disable-next-line no-unused-vars
-  return createEssayObjects(pagesContentMap);
+  const essayObjects = createEssayObjects(pagesContentMap);
+  const numberOfPagesDetected = pages;
+  return { essayObjects, numberOfPagesDetected };
 };
 
 const createUserNotification = async (userId) => {
@@ -595,6 +603,7 @@ const createLogRecord = async (
         schoolID: logObject.schoolID,
         numberOfStudents: logObject.numberOfStudents,
         fileUrl: wasLogUploaded ? generalLogFileKey : "",
+        uploadedFileName: logObject.uploadedFileName,
       };
       const params = {
         TableName: `${HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,

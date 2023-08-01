@@ -20,7 +20,7 @@ const getCurrentStudentUser = (schoolStudents) => {
   ) {
     return schoolStudents[0].user.items[0].email;
   }
-  logger.info(`No user record found for this student\n`);
+  logger.debug(`No user record found for this student\n`);
   return null;
 };
 
@@ -144,7 +144,7 @@ const createEssayObjects = (pagesContentMap) => {
   const textractEssays = [];
   let essay;
   let isIncorrectTemplate = false;
-
+  console.log("pagesContentMap", pagesContentMap);
   for (let [page, lines] of pagesContentMap) {
     if (validateIfItIsANewEssay(lines)) {
       // Defines if the essay has been read and if it's need to be added to the essay arrays.
@@ -241,14 +241,14 @@ const createEssayObjects = (pagesContentMap) => {
 
       firstName = firstName.split(".").join("");
       firstName = firstName.replace(/\n/g, "").trim();
-      firstName = firstName.replace(/\s/g, '')
+      firstName = firstName.replace(/\s/g, "");
       lastName = lastName.split(".").join("");
       lastName = lastName.replace(/\n/g, "").trim();
-      lastName = lastName.replace(/\s/g, '')
+      lastName = lastName.replace(/\s/g, "");
       DOB = DOB.split(".").join("");
       // replace any \n from textract.
       DOB = DOB.replace(/\n/g, "").trim();
-      DOB = DOB.replace(/\s/g, '')
+      DOB = DOB.replace(/\s/g, "");
       if (
         firstName &&
         lastName &&
@@ -443,14 +443,15 @@ const splitFilePerStudent = async (
   s3Client,
   fileUrl,
   activityID,
-  studentsPageMapping
+  studentsPageMapping,
+  numberOfPagesDetectedInTheDoc
 ) => {
   try {
     const studentsFileMap = new Map();
     // First it checks if there's only a pdf with an student's essay or a single image file (PNG, JPEG)
-    if (studentsPageMapping.size === 1) {
+    if (studentsPageMapping.size === 1 && numberOfPagesDetectedInTheDoc <= 1) {
       return;
-    } else {
+    } else if (fileUrl.toLowerCase().includes(".pdf")) {
       // If it's a pdf with multiple essays...
       const command = new GetObjectCommand({
         Bucket: process.env.BUCKET,

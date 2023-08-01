@@ -3,7 +3,7 @@ require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const event = require("./event.json");
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
-const { logger, uploadInfoLogToS3 } = require("./logger");
+const { logger, uploadInfoLogToS3, clearCurrentLog } = require("./logger");
 const { S3Client } = require("@aws-sdk/client-s3");
 const { v4: uuidv4 } = require("uuid");
 
@@ -21,6 +21,7 @@ const {
 const { splitFilePerStudent, ParseDOB } = require("./utils");
 
 const { validateEvent } = require("./validations");
+
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
@@ -40,6 +41,7 @@ const handler = async (event) => {
   };
   let studentsPageMapping;
   let studentsHandWritingLog;
+  let numberOfPagesDetectedInTheDoc = 0;
   const jobsToProcess = validateEvent(event);
   if (jobsToProcess && jobsToProcess.length > 0) {
     const ddbClient = new AWS.DynamoDB.DocumentClient();
@@ -57,17 +59,19 @@ const handler = async (event) => {
       const job = jobsToProcess[index];
       logObject.fileUrl = job.fileURL;
       logObject.uploadUserID = job.userID;
+      logObject.uploadedFileName = job.uploadedFileName
       const activity = await getActivity(ddbClient, job.activityID);
       if (activity) {
         logObject.activityID = activity.id;
         logObject.schoolID = activity.schoolID;
         const prompt = await getPrompt(ddbClient, activity.promptID);
         if (prompt) {
-          const essays = await processTextactResult(textractClient, job.jobID);
-          logObject.numberOfStudents = essays ? essays.length : 0;
+          const { essayObjects, numberOfPagesDetected }= await processTextactResult(textractClient, job.jobID);
+          numberOfPagesDetectedInTheDoc = numberOfPagesDetected
+          logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
           const activityClassroomStudents = await getStudentsInAClassroomAPI(activity.classroomID)
           const result = await processEssays(
-            essays,
+            essayObjects,
             activity,
             prompt,
             ENDPOINT,
@@ -86,7 +90,8 @@ const handler = async (event) => {
         s3Client,
         logObject.fileUrl,
         activity.id,
-        studentsPageMapping
+        studentsPageMapping,
+        numberOfPagesDetectedInTheDoc
       );
       await createLogRecord(
         ddbClient,
@@ -99,13 +104,19 @@ const handler = async (event) => {
       );
       await createUserNotification(logObject.uploadUserID);
     }
+    clearCurrentLog()
   }
 
   return {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "*",
+    },
     statusCode: 200,
     body: JSON.stringify("Process is finsihed!"),
   };
 };
+
 
 
 handler(event);
