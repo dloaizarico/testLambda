@@ -301,15 +301,24 @@ const createEssayObjects = (pagesContentMap) => {
 
       // it's an extension of an student's essay.
     } else {
-      if (essayInLines && essayInLines.length > 0) {
+      if (lines && lines.length > 0) {
         // Remove any \n from lines.
-        let textArray = essayInLines.map((line) =>
-          line.replace(/\n/g, "").trim()
-        );
+        let textArray = lines.map((line) => line.replace(/\n/g, "").trim());
         let essayExtension = textArray.join("\n");
-        // Append the extension to the current text of the essay.
-        essay.text = `${essay.text}\n${essayExtension}`;
-        essay.pages?.push(page);
+
+        if (essay && essay.text) {
+          // Append the extension to the current text of the essay.
+          essay.text = `${essay.text}\n${essayExtension}`;
+          essay.pages?.push(page);
+        } else {
+          isIncorrectTemplate = true;
+          logger.info(
+            `We are unable to identify the student info on page ${page}, please check that your paper follows the template.\n`
+          );
+          logger.debug(
+            `Incorrect template, extracted from textract is: ${lines}`
+          );
+        }
       }
     }
   }
@@ -334,7 +343,7 @@ const validateIfDateIsInTheExpectedFormat = (date) => {
  * @returns
  */
 const validateIfItIsANewEssay = (lines) => {
-  if (lines && lines.length > 0) {
+  if (lines && lines.length >= 3) {
     return (
       lines[0].toLowerCase().includes("name") ||
       lines[0].toLowerCase().includes("dob") ||
