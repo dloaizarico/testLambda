@@ -9,7 +9,7 @@
         "MessageId": "01e5bd8d-9040-5a00-92cf-e08c69cb2cd2",
         "TopicArn": "arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-develop",
         "Subject": null,
-        "Message": "{\"JobId\":\"c2085b86090bfbe7024a099d5690e6ea85f9c00c5d3b5a08cdd54e813e11f98e\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"1b3c5546-4d73-4821-ada3-02022d4d9823\",\"Timestamp\":1686632267529,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/23752872-aa66-4b90-9a1b-27eff25671ef/scan2.pdf\",\"S3Bucket\":\"bpedsysuserstorage174413-develop\"}}",
+        "Message": "{\"JobId\":\"6ef74a6ad1aa05f24616363ce4cad94b5bb220c7d39a512c62c673e5bbfa1a6b\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"4372088e-5fdf-4781-b36b-47be97d0e253\",\"Timestamp\":1686632267529,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/b65d9977-f90c-4f30-bca6-4b4654b775a3/IMG_8243.png\",\"S3Bucket\":\"bpedsysuserstorage174855-prod\"}}",
         "Timestamp": "2023-06-13T04:57:47.600Z",
         "SignatureVersion": "1",
         "Signature": "m79XXbjsdPYONzUErA55BEQzZOh/2t1EeyX+4E4CIU7dYXhQp7sFwijHmUXexjTHDBnf1vd292nNuEWKuCTxQGwmg4acgfBrKcjFPpXrUItVVVBpQLyruywTIHba84eCWwiocRyMALQDbAalIt0oZyi0TdAv6gEjhhXkBStUWUADlKh3/ddlgPiFUKGEcDzRuOdM9LjVnNrVrK4cFITeWuQyVvDKUB1fFhov5Go6qz/gnPhPJ0OHlcQPHcMp9KlJWb9pJrJupvqHr/X3XCR8tg7aP6zChjtVI+zF+Hj93AQelb3Vr2XY4+f8eCXAI4BLMnegW8Jv5XuIFmXPkTg4Mw==",
