@@ -6,6 +6,7 @@ AWS.config.update({ region: process.env.REGION });
 const { logger, uploadInfoLogToS3, clearCurrentLog } = require("./logger");
 const { S3Client } = require("@aws-sdk/client-s3");
 const { v4: uuidv4 } = require("uuid");
+const {arrayToJsonTxt} = require("../../utils");
 
 const {
   getSystemParameterByKey,
@@ -18,10 +19,13 @@ const {
   getStudentsInAClassroomAPI,
 } = require("./api");
 
-const { splitFilePerStudent, ParseDOB } = require("./utils");
+const {
+  splitFilePerStudent,
+  ParseDOB,
+  groupEssayPagesByStudent,
+} = require("./utils");
 
 const { validateEvent } = require("./validations");
-
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
@@ -59,17 +63,27 @@ const handler = async (event) => {
       const job = jobsToProcess[index];
       logObject.fileUrl = job.fileURL;
       logObject.uploadUserID = job.userID;
-      logObject.uploadedFileName = job.uploadedFileName
+      logObject.uploadedFileName = job.uploadedFileName;
       const activity = await getActivity(ddbClient, job.activityID);
       if (activity) {
         logObject.activityID = activity.id;
         logObject.schoolID = activity.schoolID;
         const prompt = await getPrompt(ddbClient, activity.promptID);
         if (prompt) {
-          const { essayObjects, numberOfPagesDetected }= await processTextactResult(textractClient, job.jobID);
-          numberOfPagesDetectedInTheDoc = numberOfPagesDetected
+          const { processedPages, numberOfPagesDetected } =
+            await processTextactResult(textractClient, job.jobID);
+          
+          // arrayToJsonTxt(processedPages);
+          
+          const essayObjects = groupEssayPagesByStudent(processedPages);
+          console.log(essayObjects.length);
+          return;
+          numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
+
           logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
-          const activityClassroomStudents = await getStudentsInAClassroomAPI(activity.classroomID)
+          const activityClassroomStudents = await getStudentsInAClassroomAPI(
+            activity.classroomID
+          );
           const result = await processEssays(
             essayObjects,
             activity,
@@ -82,10 +96,14 @@ const handler = async (event) => {
           studentsHandWritingLog = result.studentsHandWritingLog;
         }
       }
+      return;
       const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
         new Date()
       )}-${uuidv4()}-UploadsLog.txt`;
-      const wasLogUploaded = await uploadInfoLogToS3(s3Client, `public/${generalLogFileKey}`);
+      const wasLogUploaded = await uploadInfoLogToS3(
+        s3Client,
+        `public/${generalLogFileKey}`
+      );
       const studentsFileMap = await splitFilePerStudent(
         s3Client,
         logObject.fileUrl,
@@ -104,7 +122,7 @@ const handler = async (event) => {
       );
       await createUserNotification(logObject.uploadUserID);
     }
-    clearCurrentLog()
+    clearCurrentLog();
   }
 
   return {
@@ -116,7 +134,5 @@ const handler = async (event) => {
     body: JSON.stringify("Process is finsihed!"),
   };
 };
-
-
 
 handler(event);

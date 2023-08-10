@@ -71,102 +71,113 @@ const processEssays = async (
       logger.debug(
         `Processing student: ${essay.firstName}, ${essay.lastName}, - DOB ${essay.DOB}   \n`
       );
-      // Validate essay object, first name, last name and DOB are correct plus the text is a proper one.
-      let didEssayPassValidations = validateEssay(essay);
-      let studentID = await getStudentByNameLastNameAndDOB(
-        essay.firstName,
-        essay.lastName,
-        essay.DOB
-      );
 
-      // if the studentID was not found through firstName, lastName, birthDate, it's used the fuzzy lambda to try to match the student input with the current classroom.
-      if (!studentID || studentID === "") {
-        studentID = await fuzzyMatchingToStudents(
-          {
-            firstName: essay.firstName,
-            lastName: essay.lastName,
-            birthDate: essay.DOB,
-          },
-          activityClassroomStudents,
-          lambdaService
+      if (essay.unidentified) {
+        studentsPageMapping.set(
+          essay.key,
+          essay.pages
         );
-      }
 
-      if (studentID && didEssayPassValidations) {
-        studentHandWritingLog.studentID = studentID;
-        const schoolStudentQueryInput = {
-          schoolID: activity?.schoolID,
-          schoolYearStudentID: {
-            eq: { schoolYear: new Date().getFullYear(), studentID: studentID },
-          },
-        };
-        const schoolStudents = await fetchAllNextTokenData(
-          "getStudentBySchool",
-          getStudentBySchoolYearAndStudentID,
-          schoolStudentQueryInput
+        studentHandWritingLog.completed = false;
+      } else {
+        // Validate essay object, first name, last name and DOB are correct plus the text is a proper one.
+        let didEssayPassValidations = validateEssay(essay);
+        let studentID = await getStudentByNameLastNameAndDOB(
+          essay.firstName,
+          essay.lastName,
+          essay.DOB
         );
-        const schoolStudentEmail = getCurrentStudentUser(schoolStudents);
-        if (schoolStudentEmail && schoolStudentEmail !== "") {
-          const token = await getTokenForAuthentication(schoolStudentEmail);
-          if (token) {
-            const bearerToken = `Bearer ${token}`;
-            studentsPageMapping.set(studentID, essay.pages);
-            const essayId = await createEssay(
-              activity,
-              prompt,
-              studentID,
-              ENDPOINT,
-              bearerToken
-            );
-            if (essayId) {
-              await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
-              await submitEssay(essayId, ENDPOINT, bearerToken);
-              studentHandWritingLog.completed = true;
+
+        // if the studentID was not found through firstName, lastName, birthDate, it's used the fuzzy lambda to try to match the student input with the current classroom.
+        if (!studentID || studentID === "") {
+          studentID = await fuzzyMatchingToStudents(
+            {
+              firstName: essay.firstName,
+              lastName: essay.lastName,
+              birthDate: essay.DOB,
+            },
+            activityClassroomStudents,
+            lambdaService
+          );
+        }
+
+        if (studentID && didEssayPassValidations) {
+          studentHandWritingLog.studentID = studentID;
+          const schoolStudentQueryInput = {
+            schoolID: activity?.schoolID,
+            schoolYearStudentID: {
+              eq: {
+                schoolYear: new Date().getFullYear(),
+                studentID: studentID,
+              },
+            },
+          };
+          const schoolStudents = await fetchAllNextTokenData(
+            "getStudentBySchool",
+            getStudentBySchoolYearAndStudentID,
+            schoolStudentQueryInput
+          );
+          const schoolStudentEmail = getCurrentStudentUser(schoolStudents);
+          if (schoolStudentEmail && schoolStudentEmail !== "") {
+            const token = await getTokenForAuthentication(schoolStudentEmail);
+            if (token) {
+              const bearerToken = `Bearer ${token}`;
+              studentsPageMapping.set(studentID, essay.pages);
+              const essayId = await createEssay(
+                activity,
+                prompt,
+                studentID,
+                ENDPOINT,
+                bearerToken
+              );
+              if (essayId) {
+                await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
+                await submitEssay(essayId, ENDPOINT, bearerToken);
+                studentHandWritingLog.completed = true;
+              } else {
+                logger.info(
+                  `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
+                );
+                studentHandWritingLog.completed = false;
+              }
             } else {
               logger.info(
                 `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
+              );
+              logger.debug(
+                `Token retrieved as undefined.${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, ${token}`
               );
               studentHandWritingLog.completed = false;
             }
           } else {
             logger.info(
-              `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
+              `The student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} does not have an active user in the school, please contact support to get a valid login. \n`
             );
             logger.debug(
-              `Token retrieved as undefined.${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, ${token}`
+              `username for student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} is null`
             );
             studentHandWritingLog.completed = false;
           }
         } else {
-          logger.info(
-            `The student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} does not have an active user in the school, please contact support to get a valid login. \n`
+          studentsPageMapping.set(
+            essay.key,
+            essay.pages
           );
-          logger.debug(
-            `username for student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} is null`
+
+          logger.info(
+            `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
+          );
+          logger.info(
+            `----------------------------------------------------------------- \n`
           );
           studentHandWritingLog.completed = false;
         }
-      } else {
-        studentsPageMapping.set(
-          `${essay.firstName?.toLowerCase()}${essay.lastName?.toLowerCase()}${
-            essay.DOB
-          }`,
-          essay.pages
-        );
+        studentsHandWritingLog.push(studentHandWritingLog);
 
-        logger.info(
-          `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
+        logger.debug(
+          `Process finish for student: ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}   \n`
         );
-        logger.info(
-          `----------------------------------------------------------------- \n`
-        );
-        studentHandWritingLog.completed = false;
       }
-      studentsHandWritingLog.push(studentHandWritingLog);
-
-      logger.debug(
-        `Process finish for student: ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}   \n`
-      );
     }
   } else {
     logger.info(`No essays were found, please contact the support team. \n`);
@@ -529,9 +540,9 @@ const processTextactResult = async (textractClient, jobId) => {
 
   // iterating through the map to get the final essays.
   // eslint-disable-next-line no-unused-vars
-  const essayObjects = createEssayObjects(pagesContentMap);
+  const processedPages = createEssayObjects(pagesContentMap);
   const numberOfPagesDetected = pages;
-  return { essayObjects, numberOfPagesDetected };
+  return { processedPages, numberOfPagesDetected };
 };
 
 const createUserNotification = async (userId) => {

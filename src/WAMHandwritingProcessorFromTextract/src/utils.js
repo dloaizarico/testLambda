@@ -8,6 +8,7 @@ const { CognitoIdentityServiceProvider } = require("aws-sdk");
 const PDFDocument = require("pdf-lib").PDFDocument;
 const { GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { logger } = require("./logger");
+const _ = require("lodash");
 
 // This method finds the current user for the current year for each student.
 const getCurrentStudentUser = (schoolStudents) => {
@@ -135,6 +136,12 @@ const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
       : string.toUpperCase().includes("DOB:")
       ? 4
       : 3;
+  } else if (type === "PAGE") {
+    return string.toUpperCase().includes("PAGE :")
+      ? 6
+      : string.toUpperCase().includes("PAGE:")
+      ? 5
+      : 4;
   }
 };
 
@@ -146,19 +153,13 @@ const createEssayObjects = (pagesContentMap) => {
   let isIncorrectTemplate = false;
   console.log("pagesContentMap", pagesContentMap);
   for (let [page, lines] of pagesContentMap) {
-    if (validateIfItIsANewEssay(lines)) {
-      // Defines if the essay has been read and if it's need to be added to the essay arrays.
-      if (page !== 1 && !isIncorrectTemplate) {
-        textractEssays.push(essay);
-        essay = {};
-      } else {
-        isIncorrectTemplate = false;
-      }
-
+    const studentDataLineIndex = validateFirstLineOfPage(lines);
+    if (studentDataLineIndex > 0) {
       // Student's data extracted
       let firstName,
         lastName,
         DOB = "";
+      let essayPage;
 
       // This is used to control from what index it begins the student essay text after textract process.
       let essayStartIndex;
@@ -166,75 +167,45 @@ const createEssayObjects = (pagesContentMap) => {
       let nameIndex;
       // index from where the DOB starts in the string, it's used to extract the DOB of the student.
       let dobIndex;
+      let pageIndex;
       let fullName;
 
-      if (
-        lines[0] &&
-        lines[0].toUpperCase().includes("DOB") &&
-        lines[0].toUpperCase().includes("NAME")
-      ) {
-        extractedDOBLine = lines[0];
-        nameIndex = lines[0].toUpperCase().indexOf("NAME");
-        dobIndex = lines[0].toUpperCase().indexOf("DOB");
-        const numberOfCharatersToAddToTheInitialNameIndex =
-          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
-        fullName = lines[0]
-          .substring(
-            nameIndex + numberOfCharatersToAddToTheInitialNameIndex,
-            dobIndex
-          )
-          .trim();
-        const numberOfCharatersToAddToTheInitialDOBIndex =
-          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "DOB");
-        DOB = lines[0]
-          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
-          .trim();
-        essayStartIndex = 1;
-      }
-      // If the DOB is giving in the second line.
-      else if (
-        lines[0] &&
-        lines[0].toUpperCase().includes("NAME") &&
-        lines[1] &&
-        lines[1].toUpperCase().includes("DOB")
-      ) {
-        extractedDOBLine = lines[1];
-        nameIndex = lines[0].toUpperCase().indexOf("NAME");
-        dobIndex = lines[1].toUpperCase().indexOf("DOB");
-        const numberOfCharatersToAddToTheInitialNameIndex =
-          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
-        fullName = lines[0]
-          .substring(nameIndex + numberOfCharatersToAddToTheInitialNameIndex)
-          .trim();
-        const numberOfCharatersToAddToTheInitialDOBIndex =
-          getCharactersToAddBasedOnCurrentDateOrNameString(lines[1], "DOB");
-        DOB = lines[1]
-          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
-          .trim();
-        essayStartIndex = 2;
-      } // if the DOB is in the third line because sometimes textract returns the last name in the second line/
-      else if (
-        lines[0] &&
-        lines[0].toUpperCase().includes("NAME") &&
-        lines[2] &&
-        lines[2].toUpperCase().includes("DOB")
-      ) {
-        extractedDOBLine = lines[2];
-        nameIndex = lines[0].toUpperCase().indexOf("NAME");
-        dobIndex = lines[2].toUpperCase().indexOf("DOB");
-        const numberOfCharatersToAddToTheInitialNameIndex =
-          getCharactersToAddBasedOnCurrentDateOrNameString(lines[0], "NAME");
-        fullName = lines[0]
-          .substring(nameIndex + numberOfCharatersToAddToTheInitialNameIndex)
-          .trim();
-        fullName = `${fullName} ${lines[1]?.trim()}`;
-        const numberOfCharatersToAddToTheInitialDOBIndex =
-          getCharactersToAddBasedOnCurrentDateOrNameString(lines[2], "DOB");
-        DOB = lines[2]
-          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
-          .trim();
-        essayStartIndex = 3;
-      }
+      nameIndex = lines[studentDataLineIndex].toUpperCase().indexOf("NAME");
+      dobIndex = lines[studentDataLineIndex].toUpperCase().indexOf("DOB");
+      pageIndex = lines[studentDataLineIndex].toUpperCase().indexOf("PAGE");
+      // get number of characters to omit when reading name.
+      const numberOfCharatersToAddToTheInitialNameIndex =
+        getCharactersToAddBasedOnCurrentDateOrNameString(
+          lines[studentDataLineIndex],
+          "NAME"
+        );
+      fullName = lines[studentDataLineIndex]
+        .substring(
+          nameIndex + numberOfCharatersToAddToTheInitialNameIndex,
+          dobIndex
+        )
+        .trim();
+      const numberOfCharatersToAddToTheInitialDOBIndex =
+        getCharactersToAddBasedOnCurrentDateOrNameString(
+          lines[studentDataLineIndex],
+          "DOB"
+        );
+      DOB = lines[studentDataLineIndex]
+        .substring(
+          dobIndex + numberOfCharatersToAddToTheInitialDOBIndex,
+          pageIndex
+        )
+        .trim();
+      const numberOfCharatersToAddToTheInitialPageIndex =
+        getCharactersToAddBasedOnCurrentDateOrNameString(
+          lines[studentDataLineIndex],
+          "PAGE"
+        );
+      essayPage = lines[studentDataLineIndex]
+        .substring(pageIndex + numberOfCharatersToAddToTheInitialPageIndex)
+        .trim();
+      essayStartIndex = studentDataLineIndex;
+
       const nameStructure = getFirstNameAndLastName(fullName?.trim());
       firstName = nameStructure.firstName;
       lastName = nameStructure.lastName;
@@ -249,13 +220,19 @@ const createEssayObjects = (pagesContentMap) => {
       // replace any \n from textract.
       DOB = DOB.replace(/\n/g, "").trim();
       DOB = DOB.replace(/\s/g, "");
+      essayPage = essayPage.split(".").join("");
+      // replace any \n from textract.
+      essayPage = essayPage.replace(/\n/g, "").trim();
+      essayPage = essayPage.replace(/\s/g, "");
       if (
         firstName &&
         lastName &&
         DOB &&
+        page &&
         firstName !== "" &&
         lastName !== "" &&
-        DOB !== ""
+        DOB !== "" &&
+        page !== ""
       ) {
         firstName = firstName.replace(/\n/g, "").trim();
         firstName = formatToProper(firstName);
@@ -263,26 +240,42 @@ const createEssayObjects = (pagesContentMap) => {
         lastName = formatToProper(lastName);
 
         if (validateIfDateIsInTheExpectedFormat(DOB)) {
-          // replace any \n from textract.
-          DOB = DOB.replace(/\n/g, "").trim();
-          DOB = ParseDOB(DOB);
+          if (isNumeric(essayPage)) {
+            // replace any \n from textract.
+            DOB = DOB.replace(/\n/g, "").trim();
+            DOB = ParseDOB(DOB);
 
-          // Getting the essay text.
-          let textArray = lines.slice(essayStartIndex);
-          let cleanedEssayText = "";
-          if (textArray && textArray.length > 0) {
-            // Remove any \n from lines.
-            textArray = textArray.map((line) => line.replace(/\n/g, "").trim());
-            cleanedEssayText = textArray.join("\n");
+            // Getting the essay text.
+            let textArray = lines.slice(essayStartIndex);
+            let cleanedEssayText = "";
+            if (textArray && textArray.length > 0) {
+              // Remove any \n from lines.
+              textArray = textArray.map((line) =>
+                line.replace(/\n/g, "").trim()
+              );
+              cleanedEssayText = textArray.join("\n");
+            }
+
+            essay = {
+              firstName,
+              lastName,
+              DOB,
+              text: cleanedEssayText,
+              page: {
+                studentPage: essayPage,
+                pageInDocument: page,
+              },
+              key: `${firstName}${lastName}${DOB}${essayPage}`,
+            };
+          } else {
+            isIncorrectTemplate = true;
+            logger.info(
+              `Unable to continue with the student ${firstName} ${lastName} at page  ${page} of the document, the page extracted is not a number, page found: ${essayPage} \n`
+            );
+            logger.debug(
+              `Unable to continue with the student ${firstName} ${lastName} at page  ${page} of the document, the page extracted is not a number, page found: ${essayPage} \n`
+            );
           }
-
-          essay = {
-            firstName,
-            lastName,
-            DOB,
-            text: cleanedEssayText,
-            pages: [page],
-          };
         } else {
           isIncorrectTemplate = true;
           logger.info(
@@ -301,30 +294,33 @@ const createEssayObjects = (pagesContentMap) => {
 
       // it's an extension of an student's essay.
     } else {
-      if (lines && lines.length > 0) {
-        // Remove any \n from lines.
-        let textArray = lines.map((line) => line.replace(/\n/g, "").trim());
-        let essayExtension = textArray.join("\n");
-
-        if (essay && essay.text) {
-          // Append the extension to the current text of the essay.
-          essay.text = `${essay.text}\n${essayExtension}`;
-          essay.pages?.push(page);
-        } else {
-          isIncorrectTemplate = true;
-          logger.info(
-            `We are unable to identify the student info on page ${page}, please check that your paper follows the template.\n`
-          );
-          logger.debug(
-            `Incorrect template, extracted from textract is: ${lines}`
-          );
-        }
-      }
+      isIncorrectTemplate = true;
+      logger.info(
+        `We are unable to identify the student info on page ${page}, please check that your paper follows the template.\n`
+      );
+      logger.debug(`Incorrect template, extracted from textract is: ${lines}`);
     }
-  }
 
-  // for the final essay that was processed, it checks if the template is the correct one. Otherwise, the essay is not added to the array.
-  if (!isIncorrectTemplate) {
+    if (isIncorrectTemplate && lines && lines.length > 0) {
+      // Remove first line from the unidentified page, we have to assume that the first line comes with student data and we don't want that in the essay text.
+      let linesWithoutFirstRow = lines.slice(1);
+      // Remove any \n from lines.
+      let textArray = linesWithoutFirstRow
+        .map((line) => line.replace(/\n/g, "").trim())
+        .join("\n");
+      essay = {
+        text: textArray,
+        firstName: "unidentifiedName",
+        lastName: "unidentifiedLastName",
+        DOB: "unidentifiedDOB",
+        page: {
+          studentPage: page,
+          pageInDocument: page,
+        },
+        key: `unidentified${page}`,
+        unidentified: true,
+      };
+    }
     textractEssays.push(essay);
   }
 
@@ -342,18 +338,23 @@ const validateIfDateIsInTheExpectedFormat = (date) => {
  * @param {*} lines
  * @returns
  */
-const validateIfItIsANewEssay = (lines) => {
+const validateFirstLineOfPage = (lines) => {
   if (lines && lines.length >= 3) {
-    return (
-      lines[0].toLowerCase().includes("name") ||
-      lines[0].toLowerCase().includes("dob") ||
-      lines[1].toLowerCase().includes("name") ||
-      lines[1].toLowerCase().includes("dob") ||
-      lines[2].toLowerCase().includes("name") ||
-      lines[2].toLowerCase().includes("dob")
-    );
+    return lines[0].toLowerCase().includes("name") &&
+      lines[0].toLowerCase().includes("dob") &&
+      lines[0].toLowerCase().includes("page")
+      ? 1
+      : lines[1].toLowerCase().includes("name") ||
+        lines[1].toLowerCase().includes("dob") ||
+        lines[1].toLowerCase().includes("page")
+      ? 2
+      : lines[2].toLowerCase().includes("name") ||
+        lines[2].toLowerCase().includes("dob") ||
+        lines[2].toLowerCase().includes("page")
+      ? 3
+      : 0;
   }
-  return false;
+  return 0;
 };
 
 const createFileInBucket = async (s3Client, key, fileContent) => {
@@ -474,14 +475,15 @@ const splitFilePerStudent = async (
       let pdfContent = await PDFDocument.load(pdfString);
       // each studentPageMapping is an array of [[StudentID, [pages]]]
       for (let [studentID, pages] of studentsPageMapping.entries()) {
-        pages.sort((a, b) => a - b);
+        const sortedPages = _.sort(pages, "studentPage", "ASC");
+
         // It creates the inidividual essay document.
         const individualEssay = await PDFDocument.create();
         // Each of the pages is copied to the new individual essay pdf.
-        for (let index = 0; index < pages.length; index++) {
-          const page = pages[index];
+        for (let index = 0; index < sortedPages.length; index++) {
+          const page = sortedPages[index];
           const [copiedPage] = await individualEssay.copyPages(pdfContent, [
-            page - 1,
+            page.pageInDocument - 1,
           ]);
           individualEssay.addPage(copiedPage);
         }
@@ -500,6 +502,108 @@ const splitFilePerStudent = async (
   }
 };
 
+function isNumeric(str) {
+  if (typeof str != "string") return false; // we only process strings!
+  return (
+    !isNaN(str) && // use type coercion to parse the _entirety_ of the string (`parseFloat` alone does not do this)...
+    !isNaN(parseFloat(str))
+  ); // ...and ensure strings of whitespace fail
+}
+
+/**
+ * This method takes the processed array of pages and combine them by student, it also organises them
+ * by page provided by the student.
+ * For those pages unidentified, this method generate a single entry for the page.
+ * @param {*} processedPages
+ * @returns
+ */
+const groupEssayPagesByStudent = (processedPages) => {
+  // get the pages that were marked as unidentified.
+  const unidentifiedPages = processedPages.filter((page) => page.unidentified);
+  // get pages that followed the proper template name, dob, page.
+  const identifiedPages = processedPages.filter((page) => !page.unidentified);
+  // sort identified pages by these attributes so it's easy to combine them by student.
+  const sortedIdentifiedPages = _.sortBy(
+    identifiedPages,
+    ["firstName", "lastName", "DOB", "essayPage"],
+    ["ASC", "ASC", "ASC", "ASC"]
+  );
+
+  // this is the array of final essays when the pages are combined.
+  const essayObjects = [];
+  /**
+   * axuRecord: will keep the previous record in the sorted list, it's used to compare if it's the same student or not.
+   * text: variable use to append the text found in each page of the student's essay.
+   * pages: array to save the different pages identified by the student in the paper.
+   */
+  let auxRecord, text, pages;
+
+  // This method add an essay that contains all the pages per student, it saved the object in the essayObjects array of the main function.
+  // preSavedRecord: it refers to the current identified page that is being processed, it's used to take values that are not combine such as firstName, lastName, DOB.
+  // textValue: it's the combined text of all essays related to one student.
+  // pages: array with all the pages defined by the student on paper, it will be in order.
+  // unidentified: defines if the essay is identified because it follows the template or not.
+  const addEssay = (preSavedRecord, textValue, pages, unidentified) => {
+    const essay = {
+      text: textValue,
+      pages: pages,
+      firstName: preSavedRecord.firstName,
+      lastName: preSavedRecord.lastName,
+      DOB: preSavedRecord.DOB,
+      key: preSavedRecord.key,
+    };
+    if (unidentified) {
+      essay.unidentified = true;
+    }
+    essayObjects.push(essay);
+  };
+
+  // this method initialise the auxRecord variable that will be used to compare if the following records are related to the same student or not.
+  const initialiseAuxRecord = (record) => {
+    auxRecord = record;
+    console.log(auxRecord);
+    text = auxRecord.text;
+    pages = [auxRecord.page];
+  };
+  if (identifiedPages && identifiedPages.length > 0) {
+    // Take first record to compare.
+    initialiseAuxRecord(sortedIdentifiedPages[0]);
+
+    for (let i = 1; i < sortedIdentifiedPages.length; i++) {
+      const element = sortedIdentifiedPages[i];
+      // If it's referring to the same student.
+      if (element.key === auxRecord.key) {
+        // append text, essayPages and documentPages.
+        text = `${text}\n${element.text}`;
+        pages.push(element.page);
+      } else {
+        // If it's a different student, add the combined essay
+        addEssay(auxRecord, text, pages);
+        // Erase and initialise the auxRecord to compare with the current page processed.
+        initialiseAuxRecord(sortedIdentifiedPages[i]);
+      }
+    }
+    // If by the end of the previous cycle, the aux record is not null, the essay is added to the list.
+    if (auxRecord) {
+      addEssay(auxRecord, text, pages);
+    }
+  }
+
+  if (unidentifiedPages && unidentifiedPages.length > 0) {
+    // For those unidentified pages, it's created essays in the array, no need to combine pages because they didn't follow the templates and the algorithm is not able to recognise the students.
+    unidentifiedPages.forEach((unidentifiedPage) => {
+      addEssay(
+        unidentifiedPage,
+        unidentifiedPage.text,
+        unidentifiedPage.page,
+        true
+      );
+    });
+  }
+
+  return essayObjects;
+};
+
 module.exports = {
   splitFilePerStudent,
   createEssayObjects,
@@ -507,4 +611,5 @@ module.exports = {
   errorHandler,
   getTokenForAuthentication,
   getCurrentStudentUser,
+  groupEssayPagesByStudent,
 };
