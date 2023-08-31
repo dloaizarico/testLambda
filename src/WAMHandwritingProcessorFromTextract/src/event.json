@@ -1,22 +1,22 @@
 {
   "Records": [
-    {
-      "EventSource": "aws:sns",
-      "EventVersion": "1.0",
-      "EventSubscriptionArn": "arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-develop:e38ba20e-93bc-43e7-8406-04dd9490222c",
-      "Sns": {
-        "Type": "Notification",
-        "MessageId": "01e5bd8d-9040-5a00-92cf-e08c69cb2cd2",
-        "TopicArn": "arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-develop",
-        "Subject": null,
-        "Message": "{\"JobId\":\"8b7635341efaa43648cd55f2ce7b045c72bd34cb89e2b7e0f94a528e0c67b2c4\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"1b3c5546-4d73-4821-ada3-02022d4d9823\",\"Timestamp\":1686632267529,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/f3de5bca-ad50-4b4a-9cd2-ffd6b0315bb5/Room 32.pdf\",\"S3Bucket\":\"bpedsysuserstorage174413-develop\"}}",
-        "Timestamp": "2023-06-13T04:57:47.600Z",
-        "SignatureVersion": "1",
-        "Signature": "m79XXbjsdPYONzUErA55BEQzZOh/2t1EeyX+4E4CIU7dYXhQp7sFwijHmUXexjTHDBnf1vd292nNuEWKuCTxQGwmg4acgfBrKcjFPpXrUItVVVBpQLyruywTIHba84eCWwiocRyMALQDbAalIt0oZyi0TdAv6gEjhhXkBStUWUADlKh3/ddlgPiFUKGEcDzRuOdM9LjVnNrVrK4cFITeWuQyVvDKUB1fFhov5Go6qz/gnPhPJ0OHlcQPHcMp9KlJWb9pJrJupvqHr/X3XCR8tg7aP6zChjtVI+zF+Hj93AQelb3Vr2XY4+f8eCXAI4BLMnegW8Jv5XuIFmXPkTg4Mw==",
-        "SigningCertUrl": "https://sns.ap-southeast-2.amazonaws.com/SimpleNotificationService-01d088a6f77103d0fe307c0069e40ed6.pem",
-        "UnsubscribeUrl": "https://sns.ap-southeast-2.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-develop:e38ba20e-93bc-43e7-8406-04dd9490222c",
-        "MessageAttributes": {}
+      {
+          "EventSource": "aws:sns",
+          "EventVersion": "1.0",
+          "EventSubscriptionArn": "arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-prod:12d7c283-213b-489b-8274-5a95e71b523c",
+          "Sns": {
+              "Type": "Notification",
+              "MessageId": "0c2fd08b-5b79-5eb3-b7ba-8dea5468ef14",
+              "TopicArn": "arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-prod",
+              "Subject": null,
+              "Message": "{\"JobId\":\"b801d80627ed53cc8a98ae41e0f47e9b6e67bb5ee96dbd43aceb7f47c3e28001\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"4372088e-5fdf-4781-b36b-47be97d0e253\",\"Timestamp\":1692863697381,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/93123c25-ce26-483e-9327-2f9b6f416621/multipleStudents.pdf\",\"S3Bucket\":\"bpedsysuserstorage174855-prod\"}}",
+              "Timestamp": "2023-08-24T07:54:57.423Z",
+              "SignatureVersion": "1",
+              "Signature": "k5TANwlns5Cq3BMUNxAD/3Y8OvxyRjDuccswJZXBCcLZA5TYFdxiFR4QE+ByXBu1nF1uMGTcDaM5Ndlb+d61n0ZLK/DK5M0SVFU590hHqgmJnlnklY+ushKZeEZsC4JtAVSnGtTFs1cSciVIzDLz5WRNl0bMPYwA1c8Q5OOiFh9cmgB3HIA0WRLkXDyu9GXRopnSssBe+gWsfSK9BDJNZo6IDv4bt/OppLaDkfQfPBs7hOD8lbO8c3wLDlsbwTiCdxEm8vL9TZdgH6IDDHv47O/yFSo+kzxTuzV/w54dZV9ZpKbTiZb/hQYb50kmDKG76FKLHMNMh2xAki9FN4OsdA==",
+              "SigningCertUrl": "https://sns.ap-southeast-2.amazonaws.com/SimpleNotificationService-01d088a6f77103d0fe307c0069e40ed6.pem",
+              "UnsubscribeUrl": "https://sns.ap-southeast-2.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-prod:12d7c283-213b-489b-8274-5a95e71b523c",
+              "MessageAttributes": {}
+          }
       }
-    }
   ]
 }

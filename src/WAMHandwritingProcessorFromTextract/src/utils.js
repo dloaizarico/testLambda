@@ -21,7 +21,7 @@ const getCurrentStudentUser = (schoolStudents) => {
   ) {
     return schoolStudents[0].user.items[0].email;
   }
-  logger.debug(`No user record found for this student\n`);
+  logger.debug("No user record found for this student\n");
   return null;
 };
 
@@ -48,11 +48,11 @@ const errorHandler = (error) => {
 // Get the correct format of stuents birthdate in dynamo.
 function getDate(dob) {
   if (!dob) return null;
-  let month = "" + (dob.getMonth() + 1);
+  let month = String(dob.getMonth() + 1);
   if (month.length === 1) {
     month = "0" + month;
   }
-  let day = "" + dob.getDate();
+  let day = String(dob.getDate());
   if (day.length === 1) {
     day = "0" + day;
   }
@@ -95,7 +95,7 @@ const ParseDOB = (dob) => {
         finalDate = new Date(dob);
         let dateParts = dob.split(separator);
         // month is 0-based, that's why we need dataParts[1] - 1
-        finalDate = new Date(+dateParts[2], dateParts[1] - 1, +dateParts[0]);
+        finalDate = new Date(Number(dateParts[2]), dateParts[1] - 1, Number(dateParts[0]));
       } else {
         finalDate = dob;
       }
@@ -109,6 +109,7 @@ const ParseDOB = (dob) => {
 };
 
 const getFirstNameAndLastName = (fullName) => {
+  let firstName, lastName;
   if (fullName && fullName !== "") {
     const splitName = fullName.split(" ");
     if (splitName && splitName.length === 2) {
@@ -151,10 +152,9 @@ const createEssayObjects = (pagesContentMap) => {
   const textractEssays = [];
   let essay;
   let isIncorrectTemplate = false;
-  console.log("pagesContentMap", pagesContentMap);
   for (let [page, lines] of pagesContentMap) {
-    const studentDataLineIndex = validateFirstLineOfPage(lines);
-    if (studentDataLineIndex > 0) {
+    const { nameAndDobIndex, pageLineIndex } = getHeadersIndexes(lines);
+    if (nameAndDobIndex >= 0 && pageLineIndex >= 0) {
       // Student's data extracted
       let firstName,
         lastName,
@@ -170,16 +170,16 @@ const createEssayObjects = (pagesContentMap) => {
       let pageIndex;
       let fullName;
 
-      nameIndex = lines[studentDataLineIndex].toUpperCase().indexOf("NAME");
-      dobIndex = lines[studentDataLineIndex].toUpperCase().indexOf("DOB");
-      pageIndex = lines[studentDataLineIndex].toUpperCase().indexOf("PAGE");
+      nameIndex = lines[nameAndDobIndex].toUpperCase().indexOf("NAME");
+      dobIndex = lines[nameAndDobIndex].toUpperCase().indexOf("DOB");
+      pageIndex = lines[pageLineIndex].toUpperCase().indexOf("PAGE");
       // get number of characters to omit when reading name.
       const numberOfCharatersToAddToTheInitialNameIndex =
         getCharactersToAddBasedOnCurrentDateOrNameString(
-          lines[studentDataLineIndex],
+          lines[nameAndDobIndex],
           "NAME"
         );
-      fullName = lines[studentDataLineIndex]
+      fullName = lines[nameAndDobIndex]
         .substring(
           nameIndex + numberOfCharatersToAddToTheInitialNameIndex,
           dobIndex
@@ -187,24 +187,37 @@ const createEssayObjects = (pagesContentMap) => {
         .trim();
       const numberOfCharatersToAddToTheInitialDOBIndex =
         getCharactersToAddBasedOnCurrentDateOrNameString(
-          lines[studentDataLineIndex],
+          lines[nameAndDobIndex],
           "DOB"
         );
-      DOB = lines[studentDataLineIndex]
-        .substring(
-          dobIndex + numberOfCharatersToAddToTheInitialDOBIndex,
-          pageIndex
-        )
-        .trim();
+
       const numberOfCharatersToAddToTheInitialPageIndex =
         getCharactersToAddBasedOnCurrentDateOrNameString(
-          lines[studentDataLineIndex],
+          lines[pageLineIndex],
           "PAGE"
         );
-      essayPage = lines[studentDataLineIndex]
-        .substring(pageIndex + numberOfCharatersToAddToTheInitialPageIndex)
-        .trim();
-      essayStartIndex = studentDataLineIndex;
+      // if the page attr is in the same line as dob, dob should be from the starting index to the start of the string Page: Otherwise, take from the initial index whatever is in the line.
+      if (pageLineIndex === nameAndDobIndex) {
+        DOB = lines[nameAndDobIndex]
+          .substring(
+            dobIndex + numberOfCharatersToAddToTheInitialDOBIndex,
+            pageIndex
+          )
+          .trim();
+        essayPage = lines[pageLineIndex]
+          .substring(pageIndex + numberOfCharatersToAddToTheInitialPageIndex)
+          .trim();
+      } else {
+        DOB = lines[nameAndDobIndex]
+          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
+          .trim();
+        essayPage = lines[pageLineIndex]
+          .substring(
+            pageLineIndex + numberOfCharatersToAddToTheInitialPageIndex
+          )
+          .trim();
+      }
+      essayStartIndex = pageLineIndex + 1;
 
       const nameStructure = getFirstNameAndLastName(fullName?.trim());
       firstName = nameStructure.firstName;
@@ -224,6 +237,7 @@ const createEssayObjects = (pagesContentMap) => {
       // replace any \n from textract.
       essayPage = essayPage.replace(/\n/g, "").trim();
       essayPage = essayPage.replace(/\s/g, "");
+      
       if (
         firstName &&
         lastName &&
@@ -262,7 +276,7 @@ const createEssayObjects = (pagesContentMap) => {
               DOB,
               text: cleanedEssayText,
               page: {
-                studentPage: essayPage,
+                studentPage: Number(essayPage),
                 pageInDocument: page,
               },
               key: `${firstName}${lastName}${DOB}${essayPage}`,
@@ -330,7 +344,7 @@ const createEssayObjects = (pagesContentMap) => {
 const validateIfDateIsInTheExpectedFormat = (date) => {
   // accepts dd/mm/yyyy or dd.mm.yyyy or dd-mm-yyyy
   const reg = /(0[1-9]|[12][0-9]|3[01])[- /.](0[1-9]|1[012])[- /.](19|20)\d\d/;
-  return !!date?.match(reg);
+  return Boolean(date?.match(reg));
 };
 
 /**
@@ -338,23 +352,24 @@ const validateIfDateIsInTheExpectedFormat = (date) => {
  * @param {*} lines
  * @returns
  */
-const validateFirstLineOfPage = (lines) => {
-  if (lines && lines.length >= 3) {
-    return lines[0].toLowerCase().includes("name") &&
-      lines[0].toLowerCase().includes("dob") &&
-      lines[0].toLowerCase().includes("page")
-      ? 1
-      : lines[1].toLowerCase().includes("name") ||
-        lines[1].toLowerCase().includes("dob") ||
-        lines[1].toLowerCase().includes("page")
-      ? 2
-      : lines[2].toLowerCase().includes("name") ||
-        lines[2].toLowerCase().includes("dob") ||
-        lines[2].toLowerCase().includes("page")
-      ? 3
-      : 0;
+const getHeadersIndexes = (lines) => {
+  let nameAndDobIndex = -1;
+  let pageLineIndex = -1;
+  if (lines && lines.length >= 2) {
+    if (lines[0].toLowerCase().includes("page")) {
+      pageLineIndex = 0;
+    } else if (lines[1].toLowerCase().includes("page")) {
+      pageLineIndex = 1;
+    }
+
+    if (
+      lines[0].toLowerCase().includes("name") ||
+      lines[0].toLowerCase().includes("dob")
+    ) {
+      nameAndDobIndex = 0;
+    }
   }
-  return 0;
+  return { nameAndDobIndex, pageLineIndex };
 };
 
 const createFileInBucket = async (s3Client, key, fileContent) => {
@@ -429,8 +444,8 @@ const getTokenForAuthentication = async (email) => {
       .promise();
 
     if (
-      tokens &&
-      tokens.AuthenticationResult &&
+      
+      tokens?.AuthenticationResult &&
       tokens.AuthenticationResult.IdToken
     ) {
       return tokens.AuthenticationResult.IdToken;
@@ -561,7 +576,6 @@ const groupEssayPagesByStudent = (processedPages) => {
   // this method initialise the auxRecord variable that will be used to compare if the following records are related to the same student or not.
   const initialiseAuxRecord = (record) => {
     auxRecord = record;
-    console.log(auxRecord);
     text = auxRecord.text;
     pages = [auxRecord.page];
   };

@@ -6,7 +6,6 @@ AWS.config.update({ region: process.env.REGION });
 const { logger, uploadInfoLogToS3, clearCurrentLog } = require("./logger");
 const { S3Client } = require("@aws-sdk/client-s3");
 const { v4: uuidv4 } = require("uuid");
-const {arrayToJsonTxt} = require("../../utils");
 
 const {
   getSystemParameterByKey,
@@ -30,7 +29,7 @@ const { validateEvent } = require("./validations");
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
  */
-const handler = async (event) => {
+exports.handler = async (event) => {
   logger.debug(`EVENT: ${JSON.stringify(event)}`);
 
   // This object is used to create the log record in dynamo.
@@ -72,14 +71,8 @@ const handler = async (event) => {
         if (prompt) {
           const { processedPages, numberOfPagesDetected } =
             await processTextactResult(textractClient, job.jobID);
-          
-          // arrayToJsonTxt(processedPages);
-          
           const essayObjects = groupEssayPagesByStudent(processedPages);
-          console.log(essayObjects.length);
-          return;
           numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
-
           logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
           const activityClassroomStudents = await getStudentsInAClassroomAPI(
             activity.classroomID
@@ -96,7 +89,6 @@ const handler = async (event) => {
           studentsHandWritingLog = result.studentsHandWritingLog;
         }
       }
-      return;
       const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
         new Date()
       )}-${uuidv4()}-UploadsLog.txt`;
@@ -134,5 +126,3 @@ const handler = async (event) => {
     body: JSON.stringify("Process is finsihed!"),
   };
 };
-
-handler(event);
