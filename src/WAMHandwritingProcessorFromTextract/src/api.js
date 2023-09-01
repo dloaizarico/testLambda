@@ -78,6 +78,8 @@ const processEssays = async (
           essay.pages
         );
 
+        studentHandWritingLog.studentID = essay.key;
+
         studentHandWritingLog.completed = false;
       } else {
         // Validate essay object, first name, last name and DOB are correct plus the text is a proper one.
@@ -135,12 +137,20 @@ const processEssays = async (
                 await submitEssay(essayId, ENDPOINT, bearerToken);
                 studentHandWritingLog.completed = true;
               } else {
+                studentsPageMapping.set(
+                  essay.key,
+                  essay.pages
+                );
                 logger.info(
                   `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
                 );
                 studentHandWritingLog.completed = false;
               }
             } else {
+              studentsPageMapping.set(
+                essay.key,
+                essay.pages
+              );
               logger.info(
                 `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
               );
@@ -156,6 +166,11 @@ const processEssays = async (
             logger.debug(
               `username for student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} is null`
             );
+            studentsPageMapping.set(
+              essay.key,
+              essay.pages
+            );
+
             studentHandWritingLog.completed = false;
           }
         } else {
@@ -172,8 +187,6 @@ const processEssays = async (
           );
           studentHandWritingLog.completed = false;
         }
-        studentsHandWritingLog.push(studentHandWritingLog);
-
         logger.debug(
           `Process finish for student: ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}   \n`
         );
@@ -182,6 +195,7 @@ const processEssays = async (
         );
         studentHandWritingLog.completed = false;
       }
+      studentsHandWritingLog.push(studentHandWritingLog);
     }
   } else {
     logger.info("No essays were found, please contact the support team. \n");
@@ -637,10 +651,6 @@ const createLogRecord = async (
           `studentHandwritingLog object info: ${studentHandwritingLog.studentID}`
         );
         const key = studentHandwritingLog.studentID
-          ? studentHandwritingLog.studentID
-          : `${studentHandwritingLog.firstName?.toLowerCase()}${studentHandwritingLog.lastName?.toLowerCase()}${
-              studentHandwritingLog.DOB
-            }`;
         logger.debug(`key: ${key}`);
         let splitFileURL = studentsFileMap?.get(key);
         if (splitFileURL) {

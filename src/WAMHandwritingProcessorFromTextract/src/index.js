@@ -71,10 +71,10 @@ const handler = async (event) => {
         if (prompt) {
           const { processedPages, numberOfPagesDetected } =
             await processTextactResult(textractClient, job.jobID);
-            console.log(processedPages);
+            //console.log(processedPages);
           const essayObjects = groupEssayPagesByStudent(processedPages);
           // console.log(essayObjects);
-          return 
+          // return 
           numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
           logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
           const activityClassroomStudents = await getStudentsInAClassroomAPI(
@@ -90,9 +90,11 @@ const handler = async (event) => {
           );
           studentsPageMapping = result.studentsPageMapping;
           studentsHandWritingLog = result.studentsHandWritingLog;
+          // console.log(studentsPageMapping);
+          console.log(studentsHandWritingLog);
         }
       }
-      return
+      // return
       const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
         new Date()
       )}-${uuidv4()}-UploadsLog.txt`;
@@ -107,6 +109,8 @@ const handler = async (event) => {
         studentsPageMapping,
         numberOfPagesDetectedInTheDoc
       );
+
+      console.log("studentsFileMap----------------------------->",studentsFileMap);
       await createLogRecord(
         ddbClient,
         logObject,

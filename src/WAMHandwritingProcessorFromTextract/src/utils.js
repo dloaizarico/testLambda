@@ -151,8 +151,10 @@ const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
 const createEssayObjects = (pagesContentMap) => {
   const textractEssays = [];
   let essay;
-  let isIncorrectTemplate = false;
+  let isIncorrectTemplate
+  
   for (let [page, lines] of pagesContentMap) {
+    isIncorrectTemplate = false;  
     const { nameAndDobIndex, pageLineIndex } = getHeadersIndexes(lines);
     if (nameAndDobIndex >= 0 && pageLineIndex >= 0) {
       // Student's data extracted
@@ -279,7 +281,7 @@ const createEssayObjects = (pagesContentMap) => {
                 studentPage: Number(essayPage),
                 pageInDocument: page,
               },
-              key: `${firstName}${lastName}${DOB}${essayPage}`,
+              key: `${firstName}${lastName}${DOB}`,
             };
           } else {
             isIncorrectTemplate = true;
@@ -472,6 +474,7 @@ const splitFilePerStudent = async (
   numberOfPagesDetectedInTheDoc
 ) => {
   try {
+    console.log("studentsPageMapping------------------------------------------------",studentsPageMapping);
     const studentsFileMap = new Map();
     // First it checks if there's only a pdf with an student's essay or a single image file (PNG, JPEG)
     if (studentsPageMapping.size === 1 && numberOfPagesDetectedInTheDoc <= 1) {
@@ -490,7 +493,11 @@ const splitFilePerStudent = async (
       let pdfContent = await PDFDocument.load(pdfString);
       // each studentPageMapping is an array of [[StudentID, [pages]]]
       for (let [studentID, pages] of studentsPageMapping.entries()) {
-        const sortedPages = _.sort(pages, "studentPage", "ASC");
+        let pagesArray = pages;
+        if(!Array.isArray(pages)){
+          pagesArray = [pages]
+        }
+        const sortedPages = _.sortBy(pagesArray, "studentPage", "ASC");
 
         // It creates the inidividual essay document.
         const individualEssay = await PDFDocument.create();
@@ -514,6 +521,7 @@ const splitFilePerStudent = async (
     return studentsFileMap;
   } catch (err) {
     logger.error(err);
+    console.log(err);
   }
 };
 
