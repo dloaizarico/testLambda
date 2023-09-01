@@ -29,7 +29,7 @@ const { validateEvent } = require("./validations");
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
  */
-exports.handler = async (event) => {
+const handler = async (event) => {
   logger.debug(`EVENT: ${JSON.stringify(event)}`);
 
   // This object is used to create the log record in dynamo.
@@ -71,7 +71,10 @@ exports.handler = async (event) => {
         if (prompt) {
           const { processedPages, numberOfPagesDetected } =
             await processTextactResult(textractClient, job.jobID);
+            console.log(processedPages);
           const essayObjects = groupEssayPagesByStudent(processedPages);
+          // console.log(essayObjects);
+          return 
           numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
           logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
           const activityClassroomStudents = await getStudentsInAClassroomAPI(
@@ -89,6 +92,7 @@ exports.handler = async (event) => {
           studentsHandWritingLog = result.studentsHandWritingLog;
         }
       }
+      return
       const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
         new Date()
       )}-${uuidv4()}-UploadsLog.txt`;
@@ -126,3 +130,5 @@ exports.handler = async (event) => {
     body: JSON.stringify("Process is finsihed!"),
   };
 };
+
+handler(event);
