@@ -95,7 +95,11 @@ const ParseDOB = (dob) => {
         finalDate = new Date(dob);
         let dateParts = dob.split(separator);
         // month is 0-based, that's why we need dataParts[1] - 1
-        finalDate = new Date(Number(dateParts[2]), dateParts[1] - 1, Number(dateParts[0]));
+        finalDate = new Date(
+          Number(dateParts[2]),
+          dateParts[1] - 1,
+          Number(dateParts[0])
+        );
       } else {
         finalDate = dob;
       }
@@ -146,17 +150,50 @@ const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
   }
 };
 
+// This method receives the pages that belong to a student, it then fetch the proper text for each page in a map.
+// This is later used for processing exception and resubmitting essays.
+const getTextFromPagesProcessed = (
+  pagesContentMapWithProperText,
+  pagesFound
+) => {
+  
+
+  const pagesContentMap = [];
+  if (pagesFound && pagesFound.length > 0) {
+    for (let index = 0; index < pagesFound.length; index++) {
+      const page = pagesFound[index];
+      const pageText = pagesContentMapWithProperText.get(page.pageInDocument);
+      pagesContentMap.push({ page: page.studentPage, text: pageText });
+    }
+  }
+  return pagesContentMap;
+};
+
 // It maps the textract result to a JSON object.
 // lines are per essay and this is the return object from textract.
 const createEssayObjects = (pagesContentMap) => {
   const textractEssays = [];
   let essay;
-  let isIncorrectTemplate
-  
+  let isIncorrectTemplate;
+
+  // pagesConentMap received as parameter contains all the text sent by textract, this includes whatever is in the page including name and dob.
+  // This map contains as key the page number in the document and in the value the string without the headers: name, dob and page, this is used to save the essay text in the db.
+  const pagesContentMapWithProperText = new Map();
+
   for (let [page, lines] of pagesContentMap) {
-    isIncorrectTemplate = false;  
-    const { nameAndDobIndex, pageLineIndex } = getHeadersIndexes(lines);
-    if (nameAndDobIndex >= 0 && pageLineIndex >= 0) {
+    isIncorrectTemplate = false;
+    const {
+      nameLineIndex,
+      DOBLineIndex,
+      pageLineIndex,
+      startNameIndex,
+      startDOBIndex,
+      startPageIndex,
+      endNameIndex,
+      endDOBIndex,
+    } = getHeadersIndexes(lines);
+
+    if (nameLineIndex >= 0 && DOBLineIndex >= 0 && pageLineIndex >= 0) {
       // Student's data extracted
       let firstName,
         lastName,
@@ -165,90 +202,70 @@ const createEssayObjects = (pagesContentMap) => {
 
       // This is used to control from what index it begins the student essay text after textract process.
       let essayStartIndex;
-      // index from where the NAME starts in the string, it's used to extract the name of the student.
-      let nameIndex;
-      // index from where the DOB starts in the string, it's used to extract the DOB of the student.
-      let dobIndex;
-      let pageIndex;
       let fullName;
 
-      nameIndex = lines[nameAndDobIndex].toUpperCase().indexOf("NAME");
-      dobIndex = lines[nameAndDobIndex].toUpperCase().indexOf("DOB");
-      pageIndex = lines[pageLineIndex].toUpperCase().indexOf("PAGE");
-      // get number of characters to omit when reading name.
-      const numberOfCharatersToAddToTheInitialNameIndex =
-        getCharactersToAddBasedOnCurrentDateOrNameString(
-          lines[nameAndDobIndex],
-          "NAME"
-        );
-      fullName = lines[nameAndDobIndex]
-        .substring(
-          nameIndex + numberOfCharatersToAddToTheInitialNameIndex,
-          dobIndex
-        )
-        .trim();
-      const numberOfCharatersToAddToTheInitialDOBIndex =
-        getCharactersToAddBasedOnCurrentDateOrNameString(
-          lines[nameAndDobIndex],
-          "DOB"
-        );
-
-      const numberOfCharatersToAddToTheInitialPageIndex =
-        getCharactersToAddBasedOnCurrentDateOrNameString(
-          lines[pageLineIndex],
-          "PAGE"
-        );
-      // if the page attr is in the same line as dob, dob should be from the starting index to the start of the string Page: Otherwise, take from the initial index whatever is in the line.
-      if (pageLineIndex === nameAndDobIndex) {
-        DOB = lines[nameAndDobIndex]
-          .substring(
-            dobIndex + numberOfCharatersToAddToTheInitialDOBIndex,
-            pageIndex
-          )
-          .trim();
-        essayPage = lines[pageLineIndex]
-          .substring(pageIndex + numberOfCharatersToAddToTheInitialPageIndex)
+      if (endNameIndex) {
+        fullName = lines[nameLineIndex]
+          .substring(startNameIndex, endNameIndex)
           .trim();
       } else {
-        DOB = lines[nameAndDobIndex]
-          .substring(dobIndex + numberOfCharatersToAddToTheInitialDOBIndex)
-          .trim();
-        essayPage = lines[pageLineIndex]
-          .substring(
-            pageLineIndex + numberOfCharatersToAddToTheInitialPageIndex
-          )
-          .trim();
+        fullName = lines[nameLineIndex].substring(startNameIndex).trim();
       }
-      essayStartIndex = pageLineIndex + 1;
 
+      if (endDOBIndex) {
+        DOB = lines[DOBLineIndex].substring(startDOBIndex, endDOBIndex).trim();
+      } else {
+        DOB = lines[DOBLineIndex].substring(startDOBIndex).trim();
+      }
+
+      essayPage = lines[pageLineIndex].substring(startPageIndex).trim();
+
+      if (essayPage) {
+        // removing symbols returned by textract :
+        essayPage = essayPage.replace(/:/g, "");
+      }
+
+      // some times even though the page is in the first line together with the Name and DOB, textract returns the page in the second line, this condition is to prevent that edge case.
+      // If the essay page resulted in "" or null after the line above and the next line contains a  number and the lenght is not greater than 2, take that as the page.
+      if (
+        !essayPage ||
+        (essayPage === "" &&
+          !isNaN(lines[pageLineIndex + 1]) &&
+          lines[pageLineIndex + 1].length <= 2)
+      ) {
+        essayPage = lines[pageLineIndex + 1];
+        essayStartIndex = pageLineIndex + 2;
+      } else {
+        essayStartIndex = pageLineIndex + 1;
+      }
       const nameStructure = getFirstNameAndLastName(fullName?.trim());
       firstName = nameStructure.firstName;
       lastName = nameStructure.lastName;
 
-      firstName = firstName.split(".").join("");
+      firstName = firstName ? firstName.split(".").join("") : "";
       firstName = firstName.replace(/\n/g, "").trim();
       firstName = firstName.replace(/\s/g, "");
-      lastName = lastName.split(".").join("");
+      lastName = lastName ? lastName.split(".").join("") : "";
       lastName = lastName.replace(/\n/g, "").trim();
       lastName = lastName.replace(/\s/g, "");
-      DOB = DOB.split(".").join("");
+      DOB = DOB ? DOB.split(".").join("") : "";
       // replace any \n from textract.
       DOB = DOB.replace(/\n/g, "").trim();
       DOB = DOB.replace(/\s/g, "");
-      essayPage = essayPage.split(".").join("");
+      essayPage = essayPage ? essayPage.split(".").join("") : "";
       // replace any \n from textract.
       essayPage = essayPage.replace(/\n/g, "").trim();
       essayPage = essayPage.replace(/\s/g, "");
-      
+
       if (
         firstName &&
         lastName &&
         DOB &&
-        page &&
+        essayPage &&
         firstName !== "" &&
         lastName !== "" &&
         DOB !== "" &&
-        page !== ""
+        essayPage !== ""
       ) {
         firstName = firstName.replace(/\n/g, "").trim();
         firstName = formatToProper(firstName);
@@ -271,6 +288,8 @@ const createEssayObjects = (pagesContentMap) => {
               );
               cleanedEssayText = textArray.join("\n");
             }
+
+            pagesContentMapWithProperText.set(page, cleanedEssayText);
 
             essay = {
               firstName,
@@ -324,6 +343,7 @@ const createEssayObjects = (pagesContentMap) => {
       let textArray = linesWithoutFirstRow
         .map((line) => line.replace(/\n/g, "").trim())
         .join("\n");
+      pagesContentMapWithProperText.set(page, textArray);
       essay = {
         text: textArray,
         firstName: "unidentifiedName",
@@ -340,7 +360,7 @@ const createEssayObjects = (pagesContentMap) => {
     textractEssays.push(essay);
   }
 
-  return textractEssays;
+  return { textractEssays, pagesContentMapWithProperText };
 };
 
 const validateIfDateIsInTheExpectedFormat = (date) => {
@@ -350,28 +370,120 @@ const validateIfDateIsInTheExpectedFormat = (date) => {
 };
 
 /**
- * This method checks if the page being processed is a new essay or is just an extension of an essay. For example, if a student wrote two pages or more.
- * @param {*} lines
- * @returns
+ * This method analyses the page and extract the indexes that are required to identify the student: where should the name, DOB, page be read from?
+ * @param {*} lines the page lines returned by textract.
+ * @returns an object with the following attributes:
+ *    nameLineIndex: index of the lines array where the word name was found.
+      DOBLineIndex: index of the lines array where the word dob was found.
+      pageLineIndex: index of the lines array where the word page was found.
+      startNameIndex: start index from where the name value needs to be read, it discards the word name, please refer to the method: getCharactersToAddBasedOnCurrentDateOrNameString
+      startDOBIndex: start index from where the dob value needs to be read
+      startPageIndex: start index from where the page value needs to be read
+      endNameIndex: end index from where the name value needs to be read
+      endDOBIndex: end index from where the dob value needs to be read
  */
 const getHeadersIndexes = (lines) => {
-  let nameAndDobIndex = -1;
-  let pageLineIndex = -1;
+  let startNameIndex, endNameIndex, startDOBIndex, endDOBIndex, startPageIndex;
+
+  // Validate that the lines length at least is more than 2 lines.
   if (lines && lines.length >= 2) {
-    if (lines[0].toLowerCase().includes("page")) {
-      pageLineIndex = 0;
-    } else if (lines[1].toLowerCase().includes("page")) {
-      pageLineIndex = 1;
+    // take the first 3 lines subarray to get the indexes and convert everything to lower.
+    const alteredLines = lines.slice(0, 3).map((line) => line.toLowerCase());
+
+    let nameLineIndex;
+    let DOBLineIndex;
+    let pageLineIndex;
+
+    alteredLines.forEach((line, index) => {
+      if (line.includes("name")) {
+        nameLineIndex = index;
+      }
+
+      if (line.includes("dob")) {
+        DOBLineIndex = index;
+      }
+
+      if (line.includes("page")) {
+        pageLineIndex = index;
+      }
+    });
+
+    // If it was not possible to find those headers/identifiers, it returns an empty array.
+    if (nameLineIndex < 0 || DOBLineIndex < 0 || pageLineIndex < 0) {
+      return {};
     }
 
-    if (
-      lines[0].toLowerCase().includes("name") ||
-      lines[0].toLowerCase().includes("dob")
-    ) {
-      nameAndDobIndex = 0;
+    // get number of characters to omit when reading name.
+    const numberOfCharatersToAddToTheInitialNameIndex =
+      getCharactersToAddBasedOnCurrentDateOrNameString(
+        lines[nameLineIndex],
+        "NAME"
+      );
+
+    const numberOfCharatersToAddToTheInitialDOBIndex =
+      getCharactersToAddBasedOnCurrentDateOrNameString(
+        lines[DOBLineIndex],
+        "DOB"
+      );
+
+    const numberOfCharatersToAddToTheInitialPageIndex =
+      getCharactersToAddBasedOnCurrentDateOrNameString(
+        lines[pageLineIndex],
+        "PAGE"
+      );
+
+    let nameWordIndexWithinLine = lines[nameLineIndex]
+      .toLowerCase()
+      .indexOf("name");
+    // index where the DOB header is located in the line found before.
+    let DOBWordIndexWithinTheLine =
+      lines[DOBLineIndex].toLowerCase().indexOf("dob");
+    // index where the page header is located in the line found before.
+    let pageWordIndexWithinTheLine = lines[pageLineIndex]
+      .toLowerCase()
+      .indexOf("page");
+
+    // calculating start indexes for reading the values of the student attributes.
+    startNameIndex =
+      nameWordIndexWithinLine + numberOfCharatersToAddToTheInitialNameIndex;
+    startDOBIndex =
+      DOBWordIndexWithinTheLine + numberOfCharatersToAddToTheInitialDOBIndex;
+    startPageIndex =
+      pageWordIndexWithinTheLine + numberOfCharatersToAddToTheInitialPageIndex;
+
+    // Even though the template is designed for putting the first name and last name in the first row and page in the second row, textract sometimes returns
+    // the words in different lines. Therefore, the end index will vary depending on those scenarios. Three edge cases has been covered so far:
+
+    // Textract found everything in the same line.
+    if (nameLineIndex === DOBLineIndex && DOBLineIndex === pageLineIndex) {
+      // end of the name is where the DOB word starts
+      endNameIndex = DOBWordIndexWithinTheLine;
+      endDOBIndex = pageWordIndexWithinTheLine;
     }
+
+    // Textract found name and DOB in the same line.
+    if (nameLineIndex === DOBLineIndex && pageLineIndex !== nameLineIndex) {
+      endNameIndex = DOBWordIndexWithinTheLine;
+      endDOBIndex = null;
+    }
+
+    // Textract found name, dob and page in all different lines.
+    if (nameLineIndex !== DOBLineIndex && DOBLineIndex !== pageLineIndex) {
+      endNameIndex = null;
+      endDOBIndex = null;
+    }
+    return {
+      nameLineIndex,
+      DOBLineIndex,
+      pageLineIndex,
+      startNameIndex,
+      startDOBIndex,
+      startPageIndex,
+      endNameIndex,
+      endDOBIndex,
+    };
   }
-  return { nameAndDobIndex, pageLineIndex };
+  return {};
 };
 
 const createFileInBucket = async (s3Client, key, fileContent) => {
@@ -445,11 +557,7 @@ const getTokenForAuthentication = async (email) => {
       .respondToAuthChallenge(params2)
       .promise();
 
-    if (
-      
-      tokens?.AuthenticationResult &&
-      tokens.AuthenticationResult.IdToken
-    ) {
+    if (tokens?.AuthenticationResult && tokens.AuthenticationResult.IdToken) {
       return tokens.AuthenticationResult.IdToken;
     } else {
       logger.info(`Unable to get the token for this student ${email} \n`);
@@ -474,7 +582,6 @@ const splitFilePerStudent = async (
   numberOfPagesDetectedInTheDoc
 ) => {
   try {
-    console.log("studentsPageMapping------------------------------------------------",studentsPageMapping);
     const studentsFileMap = new Map();
     // First it checks if there's only a pdf with an student's essay or a single image file (PNG, JPEG)
     if (studentsPageMapping.size === 1 && numberOfPagesDetectedInTheDoc <= 1) {
@@ -494,8 +601,8 @@ const splitFilePerStudent = async (
       // each studentPageMapping is an array of [[StudentID, [pages]]]
       for (let [studentID, pages] of studentsPageMapping.entries()) {
         let pagesArray = pages;
-        if(!Array.isArray(pages)){
-          pagesArray = [pages]
+        if (!Array.isArray(pages)) {
+          pagesArray = [pages];
         }
         const sortedPages = _.sortBy(pagesArray, "studentPage", "ASC");
 
@@ -521,7 +628,6 @@ const splitFilePerStudent = async (
     return studentsFileMap;
   } catch (err) {
     logger.error(err);
-    console.log(err);
   }
 };
 
@@ -634,4 +740,5 @@ module.exports = {
   getTokenForAuthentication,
   getCurrentStudentUser,
   groupEssayPagesByStudent,
+  getTextFromPagesProcessed,
 };

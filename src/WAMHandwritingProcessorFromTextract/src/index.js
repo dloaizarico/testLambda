@@ -45,6 +45,7 @@ const handler = async (event) => {
   let studentsPageMapping;
   let studentsHandWritingLog;
   let numberOfPagesDetectedInTheDoc = 0;
+  let pagesContentMapProperText;
   const jobsToProcess = validateEvent(event);
   if (jobsToProcess && jobsToProcess.length > 0) {
     const ddbClient = new AWS.DynamoDB.DocumentClient();
@@ -69,12 +70,11 @@ const handler = async (event) => {
         logObject.schoolID = activity.schoolID;
         const prompt = await getPrompt(ddbClient, activity.promptID);
         if (prompt) {
-          const { processedPages, numberOfPagesDetected } =
+          const { processedPages, numberOfPagesDetected, pagesContentMapWithProperText } =
             await processTextactResult(textractClient, job.jobID);
-            //console.log(processedPages);
+
+            pagesContentMapProperText = pagesContentMapWithProperText
           const essayObjects = groupEssayPagesByStudent(processedPages);
-          // console.log(essayObjects);
-          // return 
           numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
           logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
           const activityClassroomStudents = await getStudentsInAClassroomAPI(
@@ -90,8 +90,6 @@ const handler = async (event) => {
           );
           studentsPageMapping = result.studentsPageMapping;
           studentsHandWritingLog = result.studentsHandWritingLog;
-          // console.log(studentsPageMapping);
-          console.log(studentsHandWritingLog);
         }
       }
       // return
@@ -110,12 +108,14 @@ const handler = async (event) => {
         numberOfPagesDetectedInTheDoc
       );
 
-      console.log("studentsFileMap----------------------------->",studentsFileMap);
+      
       await createLogRecord(
         ddbClient,
         logObject,
         generalLogFileKey,
         studentsHandWritingLog,
+        pagesContentMapProperText,
+        studentsPageMapping,
         studentsFileMap,
         logObject.fileUrl,
         wasLogUploaded

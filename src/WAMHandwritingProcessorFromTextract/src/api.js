@@ -17,6 +17,7 @@ const {
   getTokenForAuthentication,
   getCurrentStudentUser,
   createEssayObjects,
+  getTextFromPagesProcessed,
 } = require("./utils");
 const { request } = require("./appSyncRequest");
 const { createNotification } = require("./graphql/bpmutations");
@@ -73,10 +74,7 @@ const processEssays = async (
       );
 
       if (essay.unidentified) {
-        studentsPageMapping.set(
-          essay.key,
-          essay.pages
-        );
+        studentsPageMapping.set(essay.key, essay.pages);
 
         studentHandWritingLog.studentID = essay.key;
 
@@ -137,20 +135,16 @@ const processEssays = async (
                 await submitEssay(essayId, ENDPOINT, bearerToken);
                 studentHandWritingLog.completed = true;
               } else {
-                studentsPageMapping.set(
-                  essay.key,
-                  essay.pages
-                );
+                studentHandWritingLog.studentID = essay.key;
+                studentsPageMapping.set(essay.key, essay.pages);
                 logger.info(
                   `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
                 );
                 studentHandWritingLog.completed = false;
               }
             } else {
-              studentsPageMapping.set(
-                essay.key,
-                essay.pages
-              );
+              studentsPageMapping.set(essay.key, essay.pages);
+              studentHandWritingLog.studentID = essay.key;
               logger.info(
                 `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
               );
@@ -166,18 +160,14 @@ const processEssays = async (
             logger.debug(
               `username for student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} is null`
             );
-            studentsPageMapping.set(
-              essay.key,
-              essay.pages
-            );
+            studentHandWritingLog.studentID = essay.key;
+            studentsPageMapping.set(essay.key, essay.pages);
 
             studentHandWritingLog.completed = false;
           }
         } else {
-          studentsPageMapping.set(
-            essay.key,
-            essay.pages
-          );
+          studentHandWritingLog.studentID = essay.key;
+          studentsPageMapping.set(essay.key, essay.pages);
 
           logger.info(
             `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
@@ -193,7 +183,6 @@ const processEssays = async (
         logger.info(
           "----------------------------------------------------------------- \n"
         );
-        studentHandWritingLog.completed = false;
       }
       studentsHandWritingLog.push(studentHandWritingLog);
     }
@@ -326,11 +315,7 @@ const fuzzyMatchingToStudents = async (
     let result = await lambdaService.invoke(params).promise();
     let payload = JSON.parse(result.Payload);
     let data = JSON.parse(payload.body);
-    if (
-      
-      data?.foundStudentsArray &&
-      data.foundStudentsArray.length === 1
-    ) {
+    if (data?.foundStudentsArray && data.foundStudentsArray.length === 1) {
       return data.foundStudentsArray[0].studentID;
     }
 
@@ -352,7 +337,7 @@ const fuzzyMatchingToStudents = async (
     payload = JSON.parse(result.Payload);
     data = JSON.parse(payload.body);
 
-    if ( data?.possibleMatches && data.possibleMatches.length === 1) {
+    if (data?.possibleMatches && data.possibleMatches.length === 1) {
       const possibleMatch = data.possibleMatches[0];
       logger.debug(
         `strict equality found: ${possibleMatch.birthDateSimiliratyratio}`
@@ -451,11 +436,7 @@ const fetchAllNextTokenData = async (queryName, query, input) => {
         variables: input,
       });
 
-      if (
-        
-        searchResults?.data &&
-        searchResults.data[queryName]
-      ) {
+      if (searchResults?.data && searchResults.data[queryName]) {
         data = [...data, ...searchResults.data[queryName].items];
       }
 
@@ -478,7 +459,7 @@ const getActivity = async (ddbClient, activityID) => {
   try {
     const queryResult = await ddbClient.query(params).promise();
 
-    if ( queryResult?.Items && queryResult.Items.length > 0) {
+    if (queryResult?.Items && queryResult.Items.length > 0) {
       return queryResult.Items[0];
     } else {
       logger.info("The activity was not found please contact support.  \n");
@@ -502,7 +483,7 @@ const getPrompt = async (ddbClient, promptID) => {
   try {
     const queryResult = await ddbClient.query(params).promise();
 
-    if ( queryResult?.Items && queryResult.Items.length > 0) {
+    if (queryResult?.Items && queryResult.Items.length > 0) {
       return queryResult.Items[0];
     } else {
       logger.info(
@@ -534,7 +515,7 @@ const processTextactResult = async (textractClient, jobId) => {
         NextToken: nextToken,
       })
       .promise();
-    if ( result?.Blocks) {
+    if (result?.Blocks) {
       result.Blocks.forEach((block) => {
         // processing only lines.
         if (block.BlockType === "LINE") {
@@ -547,7 +528,7 @@ const processTextactResult = async (textractClient, jobId) => {
         }
       });
     }
-    if ( result?.DocumentMetadata) {
+    if (result?.DocumentMetadata) {
       pages =
         pages + result.DocumentMetadata.Pages
           ? result.DocumentMetadata.Pages
@@ -558,9 +539,14 @@ const processTextactResult = async (textractClient, jobId) => {
 
   // iterating through the map to get the final essays.
   // eslint-disable-next-line no-unused-vars
-  const processedPages = createEssayObjects(pagesContentMap);
+  const { textractEssays, pagesContentMapWithProperText } =
+    createEssayObjects(pagesContentMap);
   const numberOfPagesDetected = pages;
-  return { processedPages, numberOfPagesDetected };
+  return {
+    processedPages: textractEssays,
+    numberOfPagesDetected,
+    pagesContentMapWithProperText,
+  };
 };
 
 const createUserNotification = async (userId) => {
@@ -611,6 +597,8 @@ const createLogRecord = async (
   logObject,
   generalLogFileKey,
   studentsHandWritingLog,
+  pagesContentMapWithProperText,
+  studentsPageMapping,
   studentsFileMap,
   originalFileURL,
   wasLogUploaded
@@ -642,6 +630,7 @@ const createLogRecord = async (
 
       for (let index = 0; index < studentsHandWritingLog.length; index++) {
         const studentHandwritingLog = studentsHandWritingLog[index];
+
         logger.debug(
           `studentHandwritingLog object info: ${JSON.stringify(
             studentHandwritingLog
@@ -650,7 +639,19 @@ const createLogRecord = async (
         logger.debug(
           `studentHandwritingLog object info: ${studentHandwritingLog.studentID}`
         );
-        const key = studentHandwritingLog.studentID
+
+        const key = studentHandwritingLog.studentID;
+
+        let pagesContentMap;
+        if (studentHandwritingLog.completed) {
+          
+          const pagesFound = studentsPageMapping.get(key);
+          pagesContentMap = getTextFromPagesProcessed(
+            pagesContentMapWithProperText,
+            pagesFound
+          );
+        }
+
         logger.debug(`key: ${key}`);
         let splitFileURL = studentsFileMap?.get(key);
         if (splitFileURL) {
@@ -673,6 +674,10 @@ const createLogRecord = async (
           splitFileS3URL: splitFileURL,
           completed: studentHandwritingLog.completed,
         };
+
+        if (pagesContentMap) {
+          studentHandwritingLogInput.pagesContentMap = JSON.stringify(pagesContentMap);
+        }
 
         if (studentHandwritingLog.studentID) {
           studentHandwritingLogInput.studentID =
