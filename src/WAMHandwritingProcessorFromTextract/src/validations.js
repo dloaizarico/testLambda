@@ -30,7 +30,7 @@ const validateEssay = (essay) => {
   }
 
   // Validate that the essay has five unique words.
-  if (essay && essay.text) {
+  if ( essay?.text) {
     const wordsArray = essay.text.split(" ");
     const uniqueWords = [];
     wordsArray.forEach((word) => {
@@ -64,7 +64,7 @@ const validateEssay = (essay) => {
  */
 const validateEvent = (event) => {
   const jobsToProcess = [];
-  if (event && event.Records) {
+  if ( event?.Records) {
     for (let index = 0; index < event.Records.length; index++) {
       const jobData = event.Records[index];
       if (jobData.Sns) {
@@ -85,22 +85,22 @@ const validateEvent = (event) => {
             });
           } else {
             logger.error(
-              `The document key does not meet the valid format -public/handwriting/activityID/fileName-  \n`
+              "The document key does not meet the valid format -public/handwriting/activityID/fileName-  \n"
             );
           }
         } else {
           logger.error(
-            `The event data does not contain information of the s3 object processed  \n`
+            "The event data does not contain information of the s3 object processed  \n"
           );
         }
       } else {
         logger.error(
-          `The event data does not contain the attribute Sns, that is required to continue.  \n`
+          "The event data does not contain the attribute Sns, that is required to continue.  \n"
         );
       }
     }
   } else {
-    logger.error(`The lambda didn't receive any even data from the SNS.  \n`);
+    logger.error("The lambda didn't receive any even data from the SNS.  \n");
   }
   return jobsToProcess;
 };
