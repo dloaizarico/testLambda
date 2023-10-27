@@ -24,7 +24,7 @@ const validateEssay = (essay) => {
   if (essay && (!essay.text || essay.text === "")) {
     result.push("The writting was not found in the file.\n");
   }
-
+  console.log("here----------------------->",essay.DOB);
   if (!/^\d{4}\-\d{2}\-\d{2}$/.test(essay.DOB)) {
     result.push("The DOB is not in the expected format YYYY-MM-DD.\n");
   }

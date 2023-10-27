@@ -50,6 +50,7 @@ const processEssays = async (
   activityClassroomStudents,
   lambdaService
 ) => {
+  console.log("essays----->",essays);
   const studentsHandWritingLog = [];
   logger.debug(
     `Essay process started: ${new Date().toLocaleDateString()}-${new Date().toTimeString()}  \n`

@@ -8,6 +8,7 @@ const { CognitoIdentityServiceProvider } = require("aws-sdk");
 const PDFDocument = require("pdf-lib").PDFDocument;
 const { GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { logger } = require("./logger");
+const dayjs = require("dayjs");
 
 // This method finds the current user for the current year for each student.
 const getCurrentStudentUser = (schoolStudents) => {
@@ -58,29 +59,27 @@ const ParseDOB = (readDOB) => {
   }
 
   try {
-    // Parse the string using Date.parse
-    let date = Date.parse(readDOB);
-    date = new Date(date);
+    let splitDate = readDOB.split(/[./-]/);
+
+    const [day, month, year] = splitDate;
 
     // extract month
-    let month = String(date.getMonth() + 1);
     if (month.length === 1) {
       month = `0${month}`;
     }
 
     // extract day
-    let day = String(date.getDate());
     if (day.length === 1) {
       day = `0${day}`;
     }
-
+    console.log(`${year}-${month}-${day}`);
     // return the format expected by Elastik.
-    return `${date.getFullYear()}-${month}-${day}`;
+    return `${year}-${month}-${day}`;
   } catch (error) {
     logger.debug(
       `it was not possible to cast a date, the received value was ${error}`
     );
-    return ""
+    return "";
   }
 };
 
@@ -226,6 +225,8 @@ const createEssayObjects = (pagesContentMap) => {
       // replace any \n from textract.
       DOB = DOB.replace(/\n/g, "").trim();
       DOB = DOB.replace(/\s/g, "");
+
+      console.log(firstName, lastName, DOB);
       if (
         firstName &&
         lastName &&
@@ -240,8 +241,10 @@ const createEssayObjects = (pagesContentMap) => {
         lastName = formatToProper(lastName);
 
         if (validateIfDateIsInTheExpectedFormat(DOB)) {
+          console.log("emtre aca", DOB);
           // replace any \n from textract.
           DOB = DOB.replace(/\n/g, "").trim();
+          console.log("emtre aca", DOB);
           DOB = ParseDOB(DOB);
 
           // Getting the essay text.
