@@ -1,3 +1,7 @@
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
+
+const event = require("./event.json");
 const _ = require("lodash");
 const AWS = require("aws-sdk");
 const dayjs = require("dayjs");
@@ -26,6 +30,10 @@ const {
   logErrorsToWinstom,
   getClassroomStudent,
   updateCognitoLoginEnable,
+  createEndProcessLog,
+  validateIfOperationCanBeRun,
+  createUserNotification,
+  createSchoolOperationLog,
 } = require("./helpers");
 
 // some return codes
@@ -55,9 +63,9 @@ const REMOVE_STUDENT_FROM_CLASSROOM_SUCCESSFUL =
   "remove student form classroom successful";
 const COGNITO_USER_NOTFOUND = "Cognito User not found";
 
-const BATCHSIZE = 20; // for general batches - should not exceed this due to Cognito throttling limits
-const DEL_BATCHSIZE = 20; // separate constant for disableStudentLogins
-const GET_BATCHSIZE = 100; // separate constant where docClient.batchRead() is used (Max is 100)
+const BATCHSIZE = 15; // for general batches - should not exceed this due to Cognito throttling limits
+const DEL_BATCHSIZE = 5; // separate constant for disableStudentLogins
+const GET_BATCHSIZE = 50; // separate constant where docClient.batchRead() is used (Max is 100)
 
 // Test function - can be anything but reads the school record for the supplied school
 async function testAPIMethod(docClient, props) {
@@ -727,11 +735,21 @@ async function createStudentLogins(docClient, props) {
       } student batches`
     );
     let promises = studentBatch.map((student) => {
-      return createUser(docClient, student, school); //student = {id,firstName,lastName,wondeID,MISID}
+      const wrappedCreatedUsers = _.throttle(function (
+        docClient,
+        student,
+        school
+      ) {
+        return createUser(docClient, student, school);
+      },
+      10000); //student = {id,firstName,lastName,wondeID,MISID}
+      return wrappedCreatedUsers(docClient, student, school);
     });
+
     let returnCodes = await Promise.all(promises);
-    await sleep(500); // throttle to say under Cognito 20 transactions per sec
-    logToWinstom("createUser returnCodes", returnCodes);
+    console.log("----------------------->return codes", returnCodes);
+    // await sleep(500); // throttle to say under Cognito 20 transactions per sec
+    logToWinstom(`createUser returnCodes ${returnCodes}`);
     for (const returnCode of returnCodes) {
       if (returnCode.userId && returnCode.studentId) {
         userMap.set(returnCode.studentId, returnCode.userId); // map of userIds keyed by studentId
@@ -800,7 +818,6 @@ async function setStudentDepartedInSchool(docClient, props) {
     docClient,
     props.schoolId
   );
-  console.log("schoolStudents", schoolStudents);
 
   let departedStudentsMap = new Map();
   let currentStudentMap = new Map();
@@ -836,7 +853,7 @@ async function setStudentDepartedInSchool(docClient, props) {
         mostRecentSchoolStudent = studentSchool;
       }
     }
-    //console.log("mostRecentSchoolStudent", mostRecentSchoolStudent);
+
     if (mostRecentSchoolStudent.schoolID === props.schoolId) {
       // not departed
       schoolStudent.studentDepartedPending = false;
@@ -871,7 +888,6 @@ async function setStudentDepartedInSchool(docClient, props) {
       }
     }
   } // end for
-  console.log("SchoolStudents to update", schoolStudentsToUpdate.length);
 
   // now update in batches of 20
   let i = 1;
@@ -945,12 +961,18 @@ async function deleteStudentLogins(docClient, props) {
     logToWinstom(
       `**********Cleaning User batch ${n++} of ${userIdBatches.length} batches`
     );
+    console.time("throttling");
     let promises = userIdBatch.map((userId) => {
-      return deleteUser(docClient, userId);
+      const wrappedDeleteUser = _.throttle(function (docClient, userId) {
+        return deleteUser(docClient, userId);
+      }, 10000);
+      return wrappedDeleteUser(docClient, userId);
     });
     let returnCodes = await Promise.all(promises);
-    await sleep(500); // Cant exceed 20 transactions/sec for Cognito
-    logToWinstom("deletes", returnCodes);
+    // await sleep(500); // Cant exceed 20 transactions/sec for Cognito
+    // logToWinstom("deletes", returnCodes);
+    // logToWinstom("deletes", returnCodes);
+    console.timeEnd("throttling");
   }
   console.timeEnd("CleaningUsers");
 
@@ -1001,10 +1023,13 @@ async function deleteStudentLogins(docClient, props) {
         } batches`
       );
       let promises = userBatch.map((user) => {
-        return deleteUser(docClient, user.userId);
+        const wrappedDeleteUser = _.throttle(function (docClient, userId) {
+          return deleteUser(docClient, userId);
+        }, 10000);
+        return wrappedDeleteUser(docClient, user.userId);
       });
       returnCodes = await Promise.all(promises);
-      await sleep(500); // Cant exceed 20 transactions/sec for Cognito
+      // await sleep(500); // Cant exceed 20 transactions/sec for Cognito
       logToWinstom("deletes", returnCodes);
     }
     console.timeEnd("CleaningStudentUsers");
@@ -1248,7 +1273,7 @@ async function removeStudentFromClassroom(docClient, props) {
 /***************************
  *  Lambda Entry Point
  ***************************/
-exports.handler = async (event) => {
+const handler = async (event) => {
   // Thelambda may be be invoked by APIGateway either synchronously or asynchronously
   // The synchronous event has a body of type string that needs to be parsed
   // The asynchronous event is an object that may be used directly
@@ -1262,266 +1287,304 @@ exports.handler = async (event) => {
   let docClient = new AWS.DynamoDB.DocumentClient();
 
   let retVal; // what we return as the result
-  switch (props.actionCode) {
-    /******************************
-     * Single student methods
-     ******************************/
-    case "getLoginEnabledStatus": {
-      // get the current login status of a student
-      break;
-    }
-    case "updateStudentDeparted": {
-      // NEW: sets or clears "studentDeparted" bit in all schoolStudent records for a student
-      //      in a school
-      if (
-        !(
-          props.studentId &&
-          props.schoolId &&
-          props.hasOwnProperty("studentDeparted")
-        )
-      ) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await updateStudentDeparted(docClient, props);
-      retVal = result.err ? result.err : UPDATE_STUDENT_DEPARTED_SUCCESSFUL;
-      break;
-    }
-    case "enableOneStudentLogin": {
-      // NEW: enables / disables the Cognito "enabled" status
-      if (
-        !(
-          props.studentId &&
-          props.schoolId &&
-          props.hasOwnProperty("enableLogin")
-        )
-      ) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await enableOneStudentLogin(docClient, props); // Changed 12/8/2023 to be tested
-      retVal = result.err
-        ? result.err
-        : result.msg // in this case there was not exactly one User record
-        ? result.msg
-        : CHANGE_LOGIN_ENABLED_SUCCESSFUL;
-      break;
-    }
 
-    // Create login for one student at nominated school
-    case "createOneStudentLogin": {
-      if (!(props.studentId && props.schoolId)) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await createOneStudentLogin(docClient, props); // tested 4/8/2023 BC
-      retVal = result.err ? result.err : ENABLE_LOGIN_SUCCESSFUL;
-      break;
-    }
-    // Delete login for one student at nominated school
-    case "deleteOneStudentLogin": {
-      if (!props.studentId) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await deleteOneStudentLogin(docClient, props); // tested 4/8/2023 BC
-      result.err ? (retVal = result.err) : (retVal = DISABLE_LOGIN_SUCCESSFUL);
-      break;
-    }
-    /******************************
-     * Whole School Login control
-     ******************************/
-    case "setStudentDepartedInSchool": {
-      // NEW: sets studentDeparted bit in all schoolSTudent records for a school
-      if (!props.schoolId) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await setStudentDepartedInSchool(docClient, props); // tested 7/8/2023 BC
-      retVal = result.err ? result.err : SET_STUDENT_DEPARTED_SUCCESSFUL;
-      break;
-    }
-    case "updateStudentLogins": {
-      // NEW: sets studentLoginEnabled to true in the School table
-      if (!(props.schoolId && props.enableLogins)) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await updateStudentLogins(docClient, props); // changed 12/8/2023 BC
-      retVal = result.err
-        ? result.err
-        : CHANGE_STUDENT_LOGIN_ENABLED_SUCCESSFUL;
-      break;
-    }
-    // create logins for a school
-    case "createStudentLogins": {
-      if (!props.schoolId) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await createStudentLogins(docClient, props); // tested 7/8/2023
-      retVal = result.err
-        ? result.err
-        : CHANGE_STUDENT_LOGIN_ENABLED_SUCCESSFUL;
-      break;
-    }
+  if (
+    ["createStudentLogins", "deleteStudentLogins"].includes(props.actionCode)
+  ) {
+    if (await validateIfOperationCanBeRun(docClient, props.schoolId)) {
+      let startDate = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+      await createSchoolOperationLog(
+        docClient,
+        startDate,
+        props.userEmail,
+        props.userId,
+        props.schoolId,
+        props.schoolName,
+        props.actionCode
+      );
+      switch (props.actionCode) {
+        /******************************
+         * Single student methods
+         ******************************/
+        case "getLoginEnabledStatus": {
+          // get the current login status of a student
+          break;
+        }
+        case "updateStudentDeparted": {
+          // NEW: sets or clears "studentDeparted" bit in all schoolStudent records for a student
+          //      in a school
+          if (
+            !(
+              props.studentId &&
+              props.schoolId &&
+              props.hasOwnProperty("studentDeparted")
+            )
+          ) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await updateStudentDeparted(docClient, props);
+          retVal = result.err ? result.err : UPDATE_STUDENT_DEPARTED_SUCCESSFUL;
+          break;
+        }
+        case "enableOneStudentLogin": {
+          // NEW: enables / disables the Cognito "enabled" status
+          if (
+            !(
+              props.studentId &&
+              props.schoolId &&
+              props.hasOwnProperty("enableLogin")
+            )
+          ) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await enableOneStudentLogin(docClient, props); // Changed 12/8/2023 to be tested
+          retVal = result.err
+            ? result.err
+            : result.msg // in this case there was not exactly one User record
+            ? result.msg
+            : CHANGE_LOGIN_ENABLED_SUCCESSFUL;
+          break;
+        }
 
-    // Disable logins for a school
-    case "deleteStudentLogins": {
-      if (!props.schoolId) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await deleteStudentLogins(docClient, props); // tested 7/8/2023
-      retVal = result.err ? result.err : DELETE_LOGINS_SUCCESSFUL;
-      break;
-    }
-    /******************************
-     * Adding a student to school or classroom
-     * remove student from classroom
-     ******************************/
-    // Add a new student to a school - ie new Student and schoolStudent
-    // Does not create login
-    case "addNewStudentToSchool": {
-      if (
-        !(
-          props.schoolId &&
-          props.firstName &&
-          props.lastName &&
-          props.birthDate &&
-          props.gender &&
-          props.yearLevelID
-        )
-      ) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await addNewStudentToSchool(docClient, props);
-      retVal = result.err ? result.err : ADD_NEW_STUDENT_TO_SCHOOL_SUCCESSFUL;
-      break;
-    }
-    // Add a new student to a classroom - ie new classroomStudent
-    // The use case is when a new student arrives and the teachers wants to put him in a
-    // classroom as a first transaction
-    // This is implements by first calling  "addNewStudentToSchool" then "addExistingStudentToClassroom"
-    case "addNewStudentToClassroom": {
-      if (
-        !(
-          props.schoolId &&
-          props.firstName &&
-          props.lastName &&
-          props.birthDate &&
-          props.gender &&
-          props.yearLevelID &&
-          props.classroomId
-        )
-      ) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await addNewStudentToClassroom(docClient, props);
-      retVal = result.err ? result.err : ADD_STUDENT_TO_CLASSROOM_SUCCESSFUL;
-      break;
-    }
+        // Create login for one student at nominated school
+        case "createOneStudentLogin": {
+          if (!(props.studentId && props.schoolId)) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await createOneStudentLogin(docClient, props); // tested 4/8/2023 BC
+          retVal = result.err ? result.err : ENABLE_LOGIN_SUCCESSFUL;
+          break;
+        }
+        // Delete login for one student at nominated school
+        case "deleteOneStudentLogin": {
+          if (!props.studentId) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await deleteOneStudentLogin(docClient, props); // tested 4/8/2023 BC
+          result.err
+            ? (retVal = result.err)
+            : (retVal = DISABLE_LOGIN_SUCCESSFUL);
+          break;
+        }
+        /******************************
+         * Whole School Login control
+         ******************************/
+        case "setStudentDepartedInSchool": {
+          // NEW: sets studentDeparted bit in all schoolSTudent records for a school
+          if (!props.schoolId) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await setStudentDepartedInSchool(docClient, props); // tested 7/8/2023 BC
+          retVal = result.err ? result.err : SET_STUDENT_DEPARTED_SUCCESSFUL;
+          break;
+        }
+        case "updateStudentLogins": {
+          // NEW: sets studentLoginEnabled to true in the School table
+          if (!(props.schoolId && props.enableLogins)) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await updateStudentLogins(docClient, props); // changed 12/8/2023 BC
+          retVal = result.err
+            ? result.err
+            : CHANGE_STUDENT_LOGIN_ENABLED_SUCCESSFUL;
+          break;
+        }
+        // create logins for a school
+        case "createStudentLogins": {
+          if (!props.schoolId) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await createStudentLogins(docClient, props); // tested 7/8/2023
+          retVal = result.err
+            ? result.err
+            : CHANGE_STUDENT_LOGIN_ENABLED_SUCCESSFUL;
+          break;
+        }
 
-    // Here we know the studentId already so we just need the classroom id to add the student
-    case "addExistingStudentToClassroom": {
-      if (!(props.classroomId && props.studentId)) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await addExistingStudentToClassroom(docClient, props);
-      retVal = result.err ? result.err : ADD_STUDENT_TO_CLASSROOM_SUCCESSFUL;
-      break;
-    }
-    // If it exists - remove student from classroom
-    case "removeStudentFromClassroom": {
-      if (!(props.classroomId && props.studentId)) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await removeStudentFromClassroom(docClient, props);
-      retVal = result.err
-        ? result.err
-        : REMOVE_STUDENT_FROM_CLASSROOM_SUCCESSFUL;
-      break;
-    }
-    /******************************
-     * Other Methods
-     ******************************/
-    case "deOrphanLogins": {
-      let result = await deOrphanLogins(docClient, props);
-      retVal = result.err ? result.err : "deOrphanLogins successful";
-      break;
-    }
-    // NEW: simple testMethod to very API calling and returns
-    case "testAPIMethod": {
-      if (!props.schoolId) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await testAPIMethod(docClient, props); // Tested 3/8/2023 BC
-      retVal = result.err ? result.err : TEST_METHOD_SUCCESSFUL;
-      break;
-    }
-    // NEW: updates the domainName of the passed in school
-    case "updateDomainName": {
-      if (!(props.schoolId && props.domainName)) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-        break;
-      }
-      let result = await updateDomainName(docClient, props); // Tested 3/8/2023 BC
-      retVal = result.err ? result.err : CHANGE_DOMAIN_NAME_SUCCESSFUL;
-      break;
-    }
-    // Change one student's attributes - there are several cases needing different treatment
-    // but several could be changed at once but providing enough props
-    case "updateStudentDetails": {
-      // if birthdate                    - update Student record only including the dob index
-      // if middleName                   - update the student record only - middelName index not used
-      // if yealLevelID                  - update Student record and current SchoolStudent record only
-      // if firstName and/or lastName    - update Student, SchoolStudent, User, Cognito and all SchoolStudents
-      // if photo                        - update student record photoattribute only
-      let result = null;
-      if (props.studentId && props.birthDate) {
-        result = await updateStudentBirthDate(docClient, props); // tested 2/8/2023 BC
-      }
+        // Disable logins for a school
+        case "deleteStudentLogins": {
+          if (!props.schoolId) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await deleteStudentLogins(docClient, props); // tested 7/8/2023
+          retVal = result.err ? result.err : DELETE_LOGINS_SUCCESSFUL;
+          break;
+        }
+        /******************************
+         * Adding a student to school or classroom
+         * remove student from classroom
+         ******************************/
+        // Add a new student to a school - ie new Student and schoolStudent
+        // Does not create login
+        case "addNewStudentToSchool": {
+          if (
+            !(
+              props.schoolId &&
+              props.firstName &&
+              props.lastName &&
+              props.birthDate &&
+              props.gender &&
+              props.yearLevelID
+            )
+          ) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await addNewStudentToSchool(docClient, props);
+          retVal = result.err
+            ? result.err
+            : ADD_NEW_STUDENT_TO_SCHOOL_SUCCESSFUL;
+          break;
+        }
+        // Add a new student to a classroom - ie new classroomStudent
+        // The use case is when a new student arrives and the teachers wants to put him in a
+        // classroom as a first transaction
+        // This is implements by first calling  "addNewStudentToSchool" then "addExistingStudentToClassroom"
+        case "addNewStudentToClassroom": {
+          if (
+            !(
+              props.schoolId &&
+              props.firstName &&
+              props.lastName &&
+              props.birthDate &&
+              props.gender &&
+              props.yearLevelID &&
+              props.classroomId
+            )
+          ) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await addNewStudentToClassroom(docClient, props);
+          retVal = result.err
+            ? result.err
+            : ADD_STUDENT_TO_CLASSROOM_SUCCESSFUL;
+          break;
+        }
 
-      if (props.studentId && props.photo) {
-        result = await updateStudentPhoto(docClient, props); // new 9/9/2023
-      }
+        // Here we know the studentId already so we just need the classroom id to add the student
+        case "addExistingStudentToClassroom": {
+          if (!(props.classroomId && props.studentId)) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await addExistingStudentToClassroom(docClient, props);
+          retVal = result.err
+            ? result.err
+            : ADD_STUDENT_TO_CLASSROOM_SUCCESSFUL;
+          break;
+        }
+        // If it exists - remove student from classroom
+        case "removeStudentFromClassroom": {
+          if (!(props.classroomId && props.studentId)) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await removeStudentFromClassroom(docClient, props);
+          retVal = result.err
+            ? result.err
+            : REMOVE_STUDENT_FROM_CLASSROOM_SUCCESSFUL;
+          break;
+        }
+        /******************************
+         * Other Methods
+         ******************************/
+        case "deOrphanLogins": {
+          let result = await deOrphanLogins(docClient, props);
+          retVal = result.err ? result.err : "deOrphanLogins successful";
+          break;
+        }
+        // NEW: simple testMethod to very API calling and returns
+        case "testAPIMethod": {
+          if (!props.schoolId) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await testAPIMethod(docClient, props); // Tested 3/8/2023 BC
+          retVal = result.err ? result.err : TEST_METHOD_SUCCESSFUL;
+          break;
+        }
+        // NEW: updates the domainName of the passed in school
+        case "updateDomainName": {
+          if (!(props.schoolId && props.domainName)) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+            break;
+          }
+          let result = await updateDomainName(docClient, props); // Tested 3/8/2023 BC
+          retVal = result.err ? result.err : CHANGE_DOMAIN_NAME_SUCCESSFUL;
+          break;
+        }
+        // Change one student's attributes - there are several cases needing different treatment
+        // but several could be changed at once but providing enough props
+        case "updateStudentDetails": {
+          // if birthdate                    - update Student record only including the dob index
+          // if middleName                   - update the student record only - middelName index not used
+          // if yealLevelID                  - update Student record and current SchoolStudent record only
+          // if firstName and/or lastName    - update Student, SchoolStudent, User, Cognito and all SchoolStudents
+          // if photo                        - update student record photoattribute only
+          let result = null;
+          if (props.studentId && props.birthDate) {
+            result = await updateStudentBirthDate(docClient, props); // tested 2/8/2023 BC
+          }
 
-      if (props.studentId && props.hasOwnProperty("middleName")) {
-        result = await updateStudentMiddleName(docClient, props); // tested 2/8/2023 BC
-      }
+          if (props.studentId && props.photo) {
+            result = await updateStudentPhoto(docClient, props); // new 9/9/2023
+          }
 
-      if (props.studentId && props.gender) {
-        result = await updateStudentGender(docClient, props); // new at 27/08/2023
-      }
+          if (props.studentId && props.hasOwnProperty("middleName")) {
+            result = await updateStudentMiddleName(docClient, props); // tested 2/8/2023 BC
+          }
 
-      if (props.studentId && props.yearLevelID && props.schoolId) {
-        result = await updateStudentYearLevelId(docClient, props); // tested 2/8/2023 BC
-      }
+          if (props.studentId && props.gender) {
+            result = await updateStudentGender(docClient, props); // new at 27/08/2023
+          }
 
-      if (
-        props.studentId &&
-        props.schoolId &&
-        (props.firstName || props.lastName)
-      ) {
-        result = await updateStudentName(docClient, props); // tested 4/8/2023 BC
+          if (props.studentId && props.yearLevelID && props.schoolId) {
+            result = await updateStudentYearLevelId(docClient, props); // tested 2/8/2023 BC
+          }
+
+          if (
+            props.studentId &&
+            props.schoolId &&
+            (props.firstName || props.lastName)
+          ) {
+            result = await updateStudentName(docClient, props); // tested 4/8/2023 BC
+          }
+          if (result === null) {
+            retVal = BAD_OR_NO_ATTRIBUTES;
+          } else {
+            retVal = result.err
+              ? result.err
+              : UPDATE_STUDENT_ATTRIBUTE_SUCCESSFUL;
+          }
+          break;
+        }
+        // bad action code
+        default: {
+          retVal = UNKNOWN_ACTION_CODE + ": " + props.actionCode;
+        }
       }
-      if (result === null) {
-        retVal = BAD_OR_NO_ATTRIBUTES;
-      } else {
-        retVal = result.err ? result.err : UPDATE_STUDENT_ATTRIBUTE_SUCCESSFUL;
-      }
-      break;
-    }
-    // bad action code
-    default: {
-      retVal = UNKNOWN_ACTION_CODE + ": " + props.actionCode;
+      await createEndProcessLog(docClient, props);
+      await createUserNotification(
+        docClient,
+        props.userEmail,
+        props.schoolName,
+        props.actionCode
+      );
+    } else {
+      retVal =
+        "There's a job runnning for this school running at the moment, please wait until you receive a notification when the current one is done and you can try to run this again.";
     }
   }
+
   logToWinstom(`Final Result ${JSON.stringify(retVal)}`);
   return {
     headers: {
@@ -1532,3 +1595,5 @@ exports.handler = async (event) => {
     body: JSON.stringify(retVal),
   };
 }; // end of handler
+
+handler(event);

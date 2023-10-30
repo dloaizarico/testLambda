@@ -2,6 +2,7 @@ const AWS = require("aws-sdk");
 const dayjs = require("dayjs");
 const _ = require("lodash");
 const { logger } = require("./logger");
+const { v4: uuidv4 } = require("uuid");
 
 AWS.config.update({ region: process.env.REGION });
 let envSuffix = `-${process.env.ENV_SUFFIX}-${process.env.ENV}`;
@@ -17,6 +18,9 @@ const COGNITO_USER_NOTFOUND = "Cognito User not found";
 const FAILED_TO_CREATE_COGNITO_USER = "Could not create Cognito user";
 const FAILED_TO_CREATE_USER_RECORD = "Could not create User record";
 const STUDENT_NOT_FOUND = "student not found";
+
+const SCHOOL_OPERATIONS_LOG_TABLE_NAME = "SchoolOperationsLog";
+const NOTIFICATION_TABLE_NAME = "Notification";
 
 // utility to convert and array into an array of arrays of a nominated size
 // used for processing larger arrays in batches
@@ -601,6 +605,7 @@ async function updateCognitoEmail(userId, newEmail) {
 
 // deletes user by email from Cognito
 async function deleteCognitoUser(username) {
+  console.log("called cognito");
   const params = {
     UserPoolId: process.env.USER_POOL,
     Username: username,
@@ -994,6 +999,143 @@ const logErrorsToWinstom = (...args) => {
   }
 };
 
+const createSchoolOperationLog = async (
+  docClient,
+  startDate,
+  userEmail,
+  userId,
+  schoolID,
+  schoolName,
+  operation,
+  endDate
+) => {
+  let createdAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+  let updatedAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+  const id = uuidv4();
+
+  try {
+    const input = {
+      id: id,
+      createdAt,
+      updatedAt,
+      __typename: SCHOOL_OPERATIONS_LOG_TABLE_NAME,
+      userEmail,
+      userId,
+      schoolID,
+      schoolName,
+      operation,
+    };
+
+    if (startDate) {
+      input.startDate = startDate;
+    }
+
+    if (endDate) {
+      input.endDate = endDate;
+    }
+
+    const params = {
+      TableName: `${SCHOOL_OPERATIONS_LOG_TABLE_NAME}${envSuffix}`,
+      Item: input,
+    };
+    await docClient.put(params).promise();
+  } catch (error) {
+    logger.error(
+      `error when creating the log record, ${JSON.stringify(error)}`
+    );
+  }
+};
+
+const validateIfOperationCanBeRun = async (docClient, schoolID) => {
+  let schoolLogs = await getSchoolOperationsLog(docClient, schoolID);
+  schoolLogs = _.orderBy(schoolLogs, "createdAt", "desc");
+  if (schoolLogs && schoolLogs[0] && schoolLogs[0].endDate || schoolLogs.length===0) {
+    return true;
+  }
+  return false;
+};
+
+const getSchoolOperationsLog = async (docClient, schoolID) => {
+  let result, ExclusiveStartKey;
+  let schoolOperationLogs = [];
+  try {
+    do {
+      result = await docClient
+        .query({
+          TableName: `${SCHOOL_OPERATIONS_LOG_TABLE_NAME}${envSuffix}`,
+          IndexName: "bySchoolID",
+          ExclusiveStartKey,
+          Limit: 400,
+          KeyConditionExpression: "schoolID = :schoolID",
+          ExpressionAttributeValues: {
+            ":schoolID": schoolID,
+          },
+        })
+        .promise();
+
+      ExclusiveStartKey = result.LastEvaluatedKey;
+      schoolOperationLogs = [...schoolOperationLogs, ...result.Items];
+    } while (result.LastEvaluatedKey);
+    return schoolOperationLogs;
+  } catch (error) {
+    logToWinstom("error", error);
+    return [];
+  }
+};
+
+const createEndProcessLog = async (docClient, props) => {
+  let endDate = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+  await createSchoolOperationLog(
+    docClient,
+    null,
+    props.userEmail,
+    props.userId,
+    props.schoolId,
+    props.schoolName,
+    props.actionCode,
+    endDate
+  );
+};
+
+const createUserNotification = async (docClient, userEmail, schoolName, actionCode) => {
+  try {
+    let createdAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+    let updatedAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+    const id = uuidv4();
+
+    const expiryTime = Math.floor(
+      new Date().setDate(new Date().getDate() + 5) /
+        1000
+    );
+    // Creating the notification for the user.
+    const input = {
+      id,
+      createdAt,
+      updatedAt,
+      __typename: NOTIFICATION_TABLE_NAME,
+      sysType: "notify",
+      read: false,
+      readDate: "",
+      type: "School Logins process",
+      message: `The process: ${actionCode} you started for ${schoolName} has finished.`,
+      recipient: userEmail,
+      sender: "admin@elastik.com",
+      expiryTime,
+    };
+
+    const params = {
+      TableName: `${NOTIFICATION_TABLE_NAME}${envSuffix}`,
+      Item: input,
+    };
+    await docClient.put(params).promise();
+  } catch (error) {
+    console.log(error);
+    logger.error(
+      `error when creating the notification record, ${JSON.stringify(error)}`
+    );
+  }
+};
+
 module.exports = {
   makeBatches, //
   getSchoolYear, //
@@ -1015,4 +1157,8 @@ module.exports = {
   logErrorsToWinstom, //
   getClassroomStudent, //
   updateCognitoLoginEnable, //
+  validateIfOperationCanBeRun,
+  createSchoolOperationLog,
+  createUserNotification,
+  createEndProcessLog
 };
