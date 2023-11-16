@@ -1,5 +1,3 @@
-const path = require("path");
-require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
 const { SSMClient, GetParametersCommand } = require("@aws-sdk/client-ssm");
@@ -7,7 +5,7 @@ const { fromNodeProviderChain } = require("@aws-sdk/credential-providers");
 const { CognitoIdentityServiceProvider } = require("aws-sdk");
 const PDFDocument = require("pdf-lib").PDFDocument;
 const { GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
-const { logger } = require("./logger");
+const { logger } = require("../logger");
 
 // This method finds the current user for the current year for each student.
 const getCurrentStudentUser = (schoolStudents) => {
@@ -20,7 +18,7 @@ const getCurrentStudentUser = (schoolStudents) => {
   ) {
     return schoolStudents[0].user.items[0].email;
   }
-  logger.debug(`No user record found for this student\n`);
+  logger.debug("No user record found for this student\n");
   return null;
 };
 
@@ -44,20 +42,6 @@ const errorHandler = (error) => {
   }
 };
 
-// Get the correct format of stuents birthdate in dynamo.
-function getDate(dob) {
-  if (!dob) return null;
-  let month = "" + (dob.getMonth() + 1);
-  if (month.length === 1) {
-    month = "0" + month;
-  }
-  let day = "" + dob.getDate();
-  if (day.length === 1) {
-    day = "0" + day;
-  }
-  return dob.getFullYear() + "-" + month + "-" + day;
-}
-
 // It takes a string and format it into Proper.
 function formatToProper(str) {
   return str.replace(/\w\S*/g, function (txt) {
@@ -65,45 +49,36 @@ function formatToProper(str) {
   });
 }
 
-const ParseDOB = (dob) => {
-  if (!dob) {
+// Method to parse any string date read from the document to a proper date.
+
+const ParseDOB = (readDOB) => {
+  if (!readDOB) {
     return null;
   }
 
   try {
-    let finalDate;
-    // validate if the received dob is type date or not.
-    if (dob instanceof Date && !isNaN(dob)) {
-      finalDate = dob;
-    } else {
-      let separator;
-      if (dob.includes(".")) {
-        separator = ".";
-      } else if (dob.includes("-")) {
-        separator = "-";
-      } else if (dob.includes("/")) {
-        separator = "/";
-      } else {
-        logger.debug(
-          "The format of the date is not the expected (dd/mm/yyyy or dd-mm-yyyy or dd.mm.yyyy)"
-        );
-        return null;
-      }
+    let splitDate = readDOB.split(/[./-]/);
 
-      if (typeof dob === "string") {
-        finalDate = new Date(dob);
-        let dateParts = dob.split(separator);
-        // month is 0-based, that's why we need dataParts[1] - 1
-        finalDate = new Date(+dateParts[2], dateParts[1] - 1, +dateParts[0]);
-      } else {
-        finalDate = dob;
-      }
+    let [day, month, year] = splitDate;
+
+    // extract month
+    if (month.length === 1) {
+      month = `0${month}`;
     }
-    return getDate(finalDate);
+
+    // extract day
+
+    if (day.length === 1) {
+      day = `0${day}`;
+    }
+    // return the format expected by Elastik.
+
+    return `${year}-${month}-${day}`;
   } catch (error) {
     logger.debug(
-      `it was not possible to cast a date, the received value was ${dob}${error}`
+      `it was not possible to cast a date, the received value was ${error}`
     );
+    return "";
   }
 };
 
@@ -144,8 +119,7 @@ const createEssayObjects = (pagesContentMap) => {
   const textractEssays = [];
   let essay;
   let isIncorrectTemplate = false;
-  console.log("pagesContentMap---------------------->", pagesContentMap);
-  
+  console.log("pagesContentMap", pagesContentMap);
   for (let [page, lines] of pagesContentMap) {
     if (validateIfItIsANewEssay(lines)) {
       // Defines if the essay has been read and if it's need to be added to the essay arrays.
@@ -307,7 +281,7 @@ const createEssayObjects = (pagesContentMap) => {
         let textArray = lines.map((line) => line.replace(/\n/g, "").trim());
         let essayExtension = textArray.join("\n");
 
-        if (essay && essay.text) {
+        if (essay?.text) {
           // Append the extension to the current text of the essay.
           essay.text = `${essay.text}\n${essayExtension}`;
           essay.pages?.push(page);
@@ -335,7 +309,7 @@ const createEssayObjects = (pagesContentMap) => {
 const validateIfDateIsInTheExpectedFormat = (date) => {
   // accepts dd/mm/yyyy or dd.mm.yyyy or dd-mm-yyyy
   const reg = /(0[1-9]|[12][0-9]|3[01])[- /.](0[1-9]|1[012])[- /.](19|20)\d\d/;
-  return !!date?.match(reg);
+  return Boolean(date?.match(reg));
 };
 
 /**
@@ -428,11 +402,7 @@ const getTokenForAuthentication = async (email) => {
       .respondToAuthChallenge(params2)
       .promise();
 
-    if (
-      tokens &&
-      tokens.AuthenticationResult &&
-      tokens.AuthenticationResult.IdToken
-    ) {
+    if (tokens?.AuthenticationResult && tokens.AuthenticationResult.IdToken) {
       return tokens.AuthenticationResult.IdToken;
     } else {
       logger.info(`Unable to get the token for this student ${email} \n`);

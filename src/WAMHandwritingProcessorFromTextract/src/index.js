@@ -1,123 +1,33 @@
-/*
-Use the following code to retrieve configured secrets from SSM:
-
-const aws = require('aws-sdk');
-
-const { Parameters } = await (new aws.SSM())
-  .getParameters({
-    Names: ["COGNITO_STUDENT_PASSWORD"].map(secretName => process.env[secretName]),
-    WithDecryption: true,
-  })
-  .promise();
-
-Parameters will be of the form { Name: 'secretName', Value: 'secretValue', ... }[]
-*/
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
-const event = require("./event.json")
-const AWS = require("aws-sdk");
-AWS.config.update({ region: process.env.REGION });
-const { logger, uploadInfoLogToS3, clearCurrentLog } = require("./logger");
-const { S3Client } = require("@aws-sdk/client-s3");
-const { v4: uuidv4 } = require("uuid");
-
-const {
-  getSystemParameterByKey,
-  processEssays,
-  getActivity,
-  getPrompt,
-  processTextactResult,
-  createLogRecord,
-  createUserNotification,
-  getStudentsInAClassroomAPI,
-} = require("./api");
-
-const { splitFilePerStudent, ParseDOB } = require("./utils");
-
+const { handlerV1 } = require("./V1");
+const { handlerV2 } = require("./V2");
 const { validateEvent } = require("./validations");
+const event = require('./event.json');
+
+const V2 = "V2";
+const V1 = "V1";
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
  */
-const handler = async (event) => {
+exports.handler = async (event) => {
   logger.debug(`EVENT: ${JSON.stringify(event)}`);
 
-  // This object is used to create the log record in dynamo.
-  const logObject = {
-    activityID: "",
-    uploadDate: "",
-    uploadUserID: "",
-    schoolID: "",
-    numberOfStudents: "",
-    fileUrl: "",
-    studentsPageMapping: "",
-  };
-  let studentsPageMapping;
-  let studentsHandWritingLog;
-  let numberOfPagesDetectedInTheDoc = 0;
   const jobsToProcess = validateEvent(event);
+
   if (jobsToProcess && jobsToProcess.length > 0) {
-    const ddbClient = new AWS.DynamoDB.DocumentClient();
-    const textractClient = new AWS.Textract();
-    const lambdaService = new AWS.Lambda();
-    const s3Client = new S3Client({
-      apiVersion: "2006-03-01",
-      region: process.env.REGION,
-    });
-    const systemParam = await getSystemParameterByKey(
-      "REACT_APP_EMT_API_BASE_URL"
-    );
-    const ENDPOINT = systemParam.paramData;
     for (let index = 0; index < jobsToProcess.length; index++) {
-      const job = jobsToProcess[index];
-      logObject.fileUrl = job.fileURL;
-      logObject.uploadUserID = job.userID;
-      logObject.uploadedFileName = job.uploadedFileName
-      const activity = await getActivity(ddbClient, job.activityID);
-      if (activity) {
-        logObject.activityID = activity.id;
-        logObject.schoolID = activity.schoolID;
-        const prompt = await getPrompt(ddbClient, activity.promptID);
-        if (prompt) {
-          const { essayObjects, numberOfPagesDetected }= await processTextactResult(textractClient, job.jobID);
-          numberOfPagesDetectedInTheDoc = numberOfPagesDetected
-          logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
-          const activityClassroomStudents = await getStudentsInAClassroomAPI(activity.classroomID)
-          const result = await processEssays(
-            essayObjects,
-            activity,
-            prompt,
-            ENDPOINT,
-            activityClassroomStudents,
-            lambdaService
-          );
-          studentsPageMapping = result.studentsPageMapping;
-          studentsHandWritingLog = result.studentsHandWritingLog;
-        }
+      if (jobsToProcess[index].processorVersion === V1) {
+        await handlerV1(event, jobsToProcess[index]);
+      } else if (jobsToProcess[index].processorVersion === V2) {
+        await handlerV2(event, jobsToProcess[index]);
+      } else {
+        logger.error(
+          `Verison of the lambda not supported ${jobsToProcess[index].processorVersion}`
+        );
       }
-      const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
-        new Date()
-      )}-${uuidv4()}-UploadsLog.txt`;
-      const wasLogUploaded = await uploadInfoLogToS3(s3Client, `public/${generalLogFileKey}`);
-      const studentsFileMap = await splitFilePerStudent(
-        s3Client,
-        logObject.fileUrl,
-        activity.id,
-        studentsPageMapping,
-        numberOfPagesDetectedInTheDoc
-      );
-      await createLogRecord(
-        ddbClient,
-        logObject,
-        generalLogFileKey,
-        studentsHandWritingLog,
-        studentsFileMap,
-        logObject.fileUrl,
-        wasLogUploaded
-      );
-      await createUserNotification(logObject.uploadUserID);
     }
-    clearCurrentLog()
   }
 
   return {
@@ -129,5 +39,3 @@ const handler = async (event) => {
     body: JSON.stringify("Process is finsihed!"),
   };
 };
-
-handler(event);

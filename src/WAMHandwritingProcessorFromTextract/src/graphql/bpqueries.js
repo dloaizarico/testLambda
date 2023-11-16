@@ -82,3 +82,33 @@ const getUserByUserId =
   }
 `;
 exports.getUserByUserId = getUserByUserId;
+const getStudentsInAClassroom =
+/* GraphQL */
+`
+  query getStudentsInAClassroom(
+    $classroomID: ID!
+    $nextToken: String
+  ) {
+    getStudentsByClassroom(
+      classroomID: $classroomID
+      nextToken: $nextToken
+    ) {
+      items {
+        classroomID
+        id
+        student {
+          birthDate
+          firstName
+          lastName
+          middleName
+          gender
+          id
+          studentUniqueIdentifier
+          yearLevelID
+        }
+      }
+      nextToken
+    }
+  }
+`;
+exports.getStudentsInAClassroom = getStudentsInAClassroom;
