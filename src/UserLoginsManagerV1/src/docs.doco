@@ -1,0 +1,96 @@
+NOTE: you must cd to userLogin/ before running index.js - otherwise .env will not be read
+POLICIES RELATED TO TRANSFERED STUDENTS
+SINGLE STUDENT REQUESTS
+a) When a loginEnable is requested,
+   if the student already has a login in another school
+     then the request is refused
+   else (student has no logins in other schools)  
+     then only the lastest schoolStudent is updated for that student
+     all other userIds are cleared
+b) When a loginDisable is requested, 
+   if the student already has a login in another school 
+      then the loginDisable is only applied to records belonging 
+      to the requested school
+   else (student has no logins in other schools)   
+      ALL Cognito and User records are removed and 
+      the userId is removed from ALL schoolStudents
+c) When a changeStudentName is requested
+   if the student already has a login in another school 
+       then the request is refused
+   else (student has no logins in other schools) 
+       if the student has no login then one is created
+       the student's name is updated in the User, Cognito and
+       ALL schoolStudents
+       But only the lastest schoolStudent is updated for that student
+       all other userIds are cleared      
+
+WHOLE OF SCHOOL REQUESTS
+a) When enableStudentLogins is requested,
+   It is NOT checked if each student has other logins
+   Only the records that belong to the requested school are processed
+   Only the latest schoolStudent gets the userID 
+b) When a disableStudentLogins is requested, 
+   It is NOT checked if each student has other logins
+   Only the records that belong to the requested school are cleared
+   The userId is removed from all schoolStudents
+   If there are phantom Users for teh school, they are also removed
+
+WHOLE SCHOOL ACTIONS IN DETAIL
+Process for disableStudentLogins(docClient, schoolId)
+- Read all schoolStudents for the school
+- make an array of schoolStudents that have userIds
+- make a unique list of userIds
+- deleteUser() for every userId (expected 1 per student)
+  thottling to make sure rate is below 20 per sec
+- updateSchoolStudentUserId() to undefined, 
+  for every every schoolStudent with a UserId 
+- Extra cleanup
+  Read all Users by schoolId (orphans)
+    filter out any non "student" users eg teachers
+    deleteUser() - for every orphan user, throttled as above
+
+Process for enableStudentLogins(docClient, schoolId)  
+- Run disableStudentLogins()
+- Read all schoolStudents for the school
+- Make an array of unique studentIds
+- Read every Student record (one per unique studentId)
+- Read the school record (to get the schoolname)
+- Create a Cognito and User records for every student
+  thottling to make sure rate is below 20 per sec
+- Make a map (userMap) of userIds keyed by studentId
+- Sort the schoolStudents by studentID, then schoolYear descending
+- Extract the most recent schoolSTudents for each student
+- add the students userId to each of teh most recent schoolStudents 
+
+
+SINGLE STUDENT ACTIONS IN DETAIL
+Process for disableStudentLogin(docClient, studentId, schoolId)
+- verify the student exists and exit if not found
+- check if active login exists for another school
+- if other school login(s) exists
+     Only clean this school's records
+-  else
+     clean ALL login records     
+
+Process for enableStudentLogin(docClient, studentId, schoolId)
+- verify the student exists and exit if not found
+- check if active login exists for another school
+- if other school login(s) exists
+     Only clean this school's records
+     exit
+-  else
+     clean ALL login records 
+     enable the login
+
+Process for changeStudentName(docClient, studentId, studentNewName, schoolId)
+- verify the student exists and exit if not
+- Verify the studentName is different to the existing name - if the same then exit
+- if other school login(s) exists
+     Only clean this school's records
+     exit
+-  else
+     clean ALL login records 
+     change the students name
+
+
+    
