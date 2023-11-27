@@ -1,20 +1,8 @@
-/*
-Use the following code to retrieve configured secrets from SSM:
-
-const aws = require('aws-sdk');
-
-const { Parameters } = await (new aws.SSM())
-  .getParameters({
-    Names: ["COGNITO_STUDENT_PASSWORD"].map(secretName => process.env[secretName]),
-    WithDecryption: true,
-  })
-  .promise();
-
-Parameters will be of the form { Name: 'secretName', Value: 'secretValue', ... }[]
-*/
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
+
 const event = require("./event.json")
+
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
 const { logger, uploadInfoLogToS3, clearCurrentLog } = require("./logger");
@@ -131,3 +119,6 @@ const handler = async (event) => {
 };
 
 handler(event);
+
+
+

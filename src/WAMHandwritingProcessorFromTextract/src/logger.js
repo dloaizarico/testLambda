@@ -23,7 +23,7 @@ const clearCurrentLog = () =>{
 }
 
 logger.on("data", async (info) => {
-  console.log("loggerrrr---------->", info, info?.level, info?.message)
+  // console.log("loggerrrr---------->", info, info?.level, info?.message)
   if (info && info.level === "info") {
     infoLog.push(info?.message);
   }

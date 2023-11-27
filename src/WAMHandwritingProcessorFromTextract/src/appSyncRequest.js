@@ -1,13 +1,11 @@
 const path = require("path");
-require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") }); 
+require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 // amplify/backend/function/appsyncOperations/opt/appSyncRequest.js
 const https = require("https");
 const AWS = require("aws-sdk");
 const urlParse = require("url").URL;
 const region = process.env.REGION;
 const appsyncUrl = process.env.API_BPEDSYSGQL_GRAPHQLAPIENDPOINTOUTPUT;
-
-console.log("endpointtttt",process.env.API_BPEDSYSGQL_GRAPHQLAPIENDPOINTOUTPUT);
 
 /**
  *

@@ -50,7 +50,7 @@ const processEssays = async (
   activityClassroomStudents,
   lambdaService
 ) => {
-  console.log("hereeeeeee",essays);
+  console.log("essays----->",essays);
   const studentsHandWritingLog = [];
   logger.debug(
     `Essay process started: ${new Date().toLocaleDateString()}-${new Date().toTimeString()}  \n`
@@ -159,7 +159,7 @@ const processEssays = async (
           `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
         );
         logger.info(
-          `----------------------------------------------------------------- \n`
+          "----------------------------------------------------------------- \n"
         );
         studentHandWritingLog.completed = false;
       }
@@ -170,7 +170,7 @@ const processEssays = async (
       );
     }
   } else {
-    logger.info(`No essays were found, please contact the support team. \n`);
+    logger.info("No essays were found, please contact the support team. \n");
   }
   logger.debug(
     `Essays process is finished: ${new Date().toLocaleDateString()}   \n`
@@ -299,8 +299,8 @@ const fuzzyMatchingToStudents = async (
     let payload = JSON.parse(result.Payload);
     let data = JSON.parse(payload.body);
     if (
-      data &&
-      data.foundStudentsArray &&
+      
+      data?.foundStudentsArray &&
       data.foundStudentsArray.length === 1
     ) {
       return data.foundStudentsArray[0].studentID;
@@ -324,7 +324,7 @@ const fuzzyMatchingToStudents = async (
     payload = JSON.parse(result.Payload);
     data = JSON.parse(payload.body);
 
-    if (data && data.possibleMatches && data.possibleMatches.length === 1) {
+    if ( data?.possibleMatches && data.possibleMatches.length === 1) {
       const possibleMatch = data.possibleMatches[0];
       logger.debug(
         `strict equality found: ${possibleMatch.birthDateSimiliratyratio}`
@@ -332,7 +332,7 @@ const fuzzyMatchingToStudents = async (
       return possibleMatch.student.studentID;
     }
 
-    logger.debug(`Fuzzy matching didn't return any results.`);
+    logger.debug("Fuzzy matching didn't return any results.");
     return null;
   } catch (error) {
     logger.error(
@@ -424,8 +424,8 @@ const fetchAllNextTokenData = async (queryName, query, input) => {
       });
 
       if (
-        searchResults &&
-        searchResults.data &&
+        
+        searchResults?.data &&
         searchResults.data[queryName]
       ) {
         data = [...data, ...searchResults.data[queryName].items];
@@ -442,7 +442,7 @@ const fetchAllNextTokenData = async (queryName, query, input) => {
 const getActivity = async (ddbClient, activityID) => {
   const params = {
     TableName: `${ACTIVITY_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
-    KeyConditionExpression: `id = :id`,
+    KeyConditionExpression: "id = :id",
     ExpressionAttributeValues: {
       ":id": activityID,
     },
@@ -450,14 +450,14 @@ const getActivity = async (ddbClient, activityID) => {
   try {
     const queryResult = await ddbClient.query(params).promise();
 
-    if (queryResult && queryResult.Items && queryResult.Items.length > 0) {
+    if ( queryResult?.Items && queryResult.Items.length > 0) {
       return queryResult.Items[0];
     } else {
-      logger.info(`The activity was not found please contact support.  \n`);
+      logger.info("The activity was not found please contact support.  \n");
       return null;
     }
   } catch (error) {
-    logger.info(`The activity was not found please contact support.  \n`);
+    logger.info("The activity was not found please contact support.  \n");
     logger.error(`error while fetching the activity ${JSON.stringify(error)}`);
     return null;
   }
@@ -466,7 +466,7 @@ const getActivity = async (ddbClient, activityID) => {
 const getPrompt = async (ddbClient, promptID) => {
   const params = {
     TableName: `${PROMPT_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
-    KeyConditionExpression: `id = :id`,
+    KeyConditionExpression: "id = :id",
     ExpressionAttributeValues: {
       ":id": promptID,
     },
@@ -474,17 +474,17 @@ const getPrompt = async (ddbClient, promptID) => {
   try {
     const queryResult = await ddbClient.query(params).promise();
 
-    if (queryResult && queryResult.Items && queryResult.Items.length > 0) {
+    if ( queryResult?.Items && queryResult.Items.length > 0) {
       return queryResult.Items[0];
     } else {
       logger.info(
-        `The prompt related to the activity was not found please contact support.  \n`
+        "The prompt related to the activity was not found please contact support.  \n"
       );
       return null;
     }
   } catch (error) {
     logger.info(
-      `The prompt related to the activity was not found please contact support.  \n`
+      "The prompt related to the activity was not found please contact support.  \n"
     );
     logger.error(`error while fetching the prompt ${JSON.stringify(error)}`);
     return null;
@@ -506,9 +506,7 @@ const processTextactResult = async (textractClient, jobId) => {
         NextToken: nextToken,
       })
       .promise();
-      console.log(result);
-    if (result && result.Blocks) {
-      
+    if ( result?.Blocks) {
       result.Blocks.forEach((block) => {
         // processing only lines.
         if (block.BlockType === "LINE") {
@@ -521,7 +519,7 @@ const processTextactResult = async (textractClient, jobId) => {
         }
       });
     }
-    if (result && result.DocumentMetadata) {
+    if ( result?.DocumentMetadata) {
       pages =
         pages + result.DocumentMetadata.Pages
           ? result.DocumentMetadata.Pages
@@ -614,12 +612,22 @@ const createLogRecord = async (
       };
       await ddb.put(params).promise();
 
-      studentsHandWritingLog.forEach(async (studentHandwritingLog) => {
+      for (let index = 0; index < studentsHandWritingLog.length; index++) {
+        const studentHandwritingLog = studentsHandWritingLog[index];
+        logger.debug(
+          `studentHandwritingLog object info: ${JSON.stringify(
+            studentHandwritingLog
+          )}`
+        );
+        logger.debug(
+          `studentHandwritingLog object info: ${studentHandwritingLog.studentID}`
+        );
         const key = studentHandwritingLog.studentID
           ? studentHandwritingLog.studentID
           : `${studentHandwritingLog.firstName?.toLowerCase()}${studentHandwritingLog.lastName?.toLowerCase()}${
               studentHandwritingLog.DOB
             }`;
+        logger.debug(`key: ${key}`);
         let splitFileURL = studentsFileMap?.get(key);
         if (splitFileURL) {
           splitFileURL = splitFileURL.replace("public/", "");
@@ -646,12 +654,18 @@ const createLogRecord = async (
           studentHandwritingLogInput.studentID =
             studentHandwritingLog.studentID;
         }
+
+        logger.debug(
+          `studentHandwritingLog object info: ${JSON.stringify(
+            studentHandwritingLogInput
+          )}`
+        );
         const params = {
           TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
           Item: studentHandwritingLogInput,
         };
         await ddb.put(params).promise();
-      });
+      }
     } catch (error) {
       logger.error(
         `error when creating the log record, ${JSON.stringify(error)}`
