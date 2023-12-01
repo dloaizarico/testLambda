@@ -1,0 +1,11 @@
+{
+  "resource": "/sendHandwritingToTextract",
+  "path": "/sendHandwritingToTextract",
+  "httpMethod": "PUT",
+  "queryStringParameters": null,
+  "multiValueQueryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "body": "{\"testUploadIDs\":[\"3405a5c6-671f-47fa-837e-7fd667834e23\"],\"userID\":\"4372088e-5fdf-4781-b36b-47be97d0e253\"}",
+  "isBase64Encoded": false
+}
