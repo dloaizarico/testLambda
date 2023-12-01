@@ -4,6 +4,7 @@ const { handlerV1 } = require("./V1");
 const { handlerV2 } = require("./V2");
 const { validateEvent } = require("./validations");
 const event = require('./event.json');
+const { logger } = require("./logger");
 
 const V2 = "V2";
 const V1 = "V1";
@@ -11,7 +12,7 @@ const V1 = "V1";
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
  */
-exports.handler = async (event) => {
+const handler = async (event) => {
   logger.debug(`EVENT: ${JSON.stringify(event)}`);
 
   const jobsToProcess = validateEvent(event);
@@ -39,3 +40,6 @@ exports.handler = async (event) => {
     body: JSON.stringify("Process is finsihed!"),
   };
 };
+
+
+handler(event);

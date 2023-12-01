@@ -644,7 +644,6 @@ const createLogRecord = async (
 
         let pagesContentMap;
         if (studentHandwritingLog.completed) {
-          
           const pagesFound = studentsPageMapping.get(key);
           pagesContentMap = getTextFromPagesProcessed(
             pagesContentMapWithProperText,
@@ -676,7 +675,9 @@ const createLogRecord = async (
         };
 
         if (pagesContentMap) {
-          studentHandwritingLogInput.pagesContentMap = JSON.stringify(pagesContentMap);
+          studentHandwritingLogInput.pagesContentMap = Object.fromEntries(
+            pagesContentMap.entries()
+          );
         }
 
         if (studentHandwritingLog.studentID) {

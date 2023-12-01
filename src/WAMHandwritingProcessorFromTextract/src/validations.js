@@ -75,7 +75,7 @@ const validateEvent = (event) => {
           const documentLocation =
             objectData.DocumentLocation.S3ObjectName.split("/");
           if (documentLocation && documentLocation.length === 4) {
-            const jobTagInfo = objectData.JobTag.split("-");
+            const jobTagInfo = objectData.JobTag.split("_");
             activityID = documentLocation[2];
             jobsToProcess.push({
               jobID: objectData.JobId,
