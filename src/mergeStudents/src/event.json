@@ -1,0 +1,11 @@
+{
+  "schoolStudentID1": "6cfde82d-46bd-42f8-8a49-49c011280ddf",
+  "schoolStudentID2": "082efa5a-f334-4f89-8e6f-4b2e7207b53c",
+  "mergedData": {
+      "firstName": "diego",
+      "lastName": "diego2",
+      "yearLevelID": "bf812521-9108-4db0-a0f3-5c0df9e74144",
+      "gender": "Male",
+      "birthDate": "2012-09-13"
+  }
+}
