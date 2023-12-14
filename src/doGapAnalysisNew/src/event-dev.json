@@ -1,0 +1,40 @@
+{
+  "body": {
+    "studentID": null,
+    "classroomID": "be4cf062-461b-4227-b476-94adca59c6b2",
+    "schoolID": null,
+    "yearLevelID": null,
+    "networkSchools": null,
+    "tests": [
+      {
+        "learningAreaID": "7996cf16-ca38-4b46-9bcb-9eee6a50d104",
+        "testDate": "2022-04-14",
+        "testID": "eeda18ef-993b-4f7f-a230-57d5159e85d1",
+        "testKey": "Dani maths#2022-04-14",
+        "testName": "Dani maths",
+        "shortName": "Dani maths",
+        "testInfo": "Best Performance DEV AU",
+        "schoolID": "e2eee82c-38bc-4af6-a3b8-478251abb63b",
+        "schoolYear": 2022,
+        "testUploadID": "8723f35a-1921-480f-afce-0fc98ceb1d0e"
+      }
+    ],
+    "learningAreas": ["7996cf16-ca38-4b46-9bcb-9eee6a50d104"],
+    "allTestUploads": [
+      {
+        "learningAreaID": "7996cf16-ca38-4b46-9bcb-9eee6a50d104",
+        "testDate": "2022-04-14",
+        "testID": "eeda18ef-993b-4f7f-a230-57d5159e85d1",
+        "testKey": "Dani maths#2022-04-14",
+        "testName": "Dani maths",
+        "shortName": "Dani maths",
+        "testInfo": "Best Performance DEV AU",
+        "schoolID": "e2eee82c-38bc-4af6-a3b8-478251abb63b",
+        "schoolYear": 2022,
+        "testUploadID": "8723f35a-1921-480f-afce-0fc98ceb1d0e"
+      }
+    ],
+    "schoolYear": 2023
+  },
+  "method": "PUT"
+}
