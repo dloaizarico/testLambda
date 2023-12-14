@@ -4,7 +4,7 @@ const event = require("./event.json");
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
 const ddb = new AWS.DynamoDB.DocumentClient();
-const { getWAMStudentLicenceHistoryUsingDynamo } = require("./api");
+const { getWAMStudentLicenceHistoryUsingDynamo, fetchAllNextTokenData } = require("./api");
 
 const { validateEvent } = require("./validations");
 
@@ -24,15 +24,15 @@ const {
   deleteUserRecord,
   updateWAMStudentLicenceHistory,
   updateStudentRecord,
-  updateSchoolStudentRecord,
+  updateSchoolStudentRecordFromPreviousYears,
   createMergedStudentDataRecordsGenericMethod,
-  getSchoolStudentsByStudentID,
   updateSchoolStudentsInPreviousYearsForStudentToDelete,
 } = require("./controller");
 const {
   convertBirthDateToTheRightFormat,
   WAM_STUDENT_LICENCE_HISTORY_tableName,
 } = require("./utils");
+const { getSchoolStudentsByStudentID } = require("./graphql/bpqueries");
 
 const cognitoIdentityServiceProvider = new CognitoIdentityServiceProvider();
 
@@ -43,6 +43,7 @@ const getError = (message) => {
     body: JSON.stringify(message),
   };
 };
+
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
@@ -212,6 +213,16 @@ const handler = async (event) => {
           schoolStudentToKeep.id
         );
       }
+
+      // getting previous year school students from the studentToKeepID to update their data.
+      const schoolStudentsRecordsFromPreviousYears = await fetchAllNextTokenData(
+        "getStudentSchools",
+        getSchoolStudentsByStudentID,
+        {
+          studentID: studentToKeep.id,
+        }
+      );
+
       console.log("deleting student record");
       if (studentToKeep.id !== duplicatedStudent.id) {
         // previous to delete a student record, this goes and find any school student records that are attached to that student ID and updates them with the studentID to keep.
@@ -241,9 +252,9 @@ const handler = async (event) => {
         studentToKeep,
         schoolStudentToKeep
       );
-      await updateSchoolStudentRecord(
+      await updateSchoolStudentRecordFromPreviousYears(
         inputData.mergedData,
-        schoolStudentToKeep
+        schoolStudentsRecordsFromPreviousYears
       );
     } else {
       getError(

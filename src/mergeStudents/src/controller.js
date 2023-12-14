@@ -412,8 +412,6 @@ const createMergedStudentRecord = async (
     TableName: `${MERGED_STUDENT_tableName}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPU}-${process.env.ENV}`,
     Item: input,
   };
-
-  console.log(params);
   try {
     await ddb.put(params).promise();
     return id;
@@ -590,10 +588,9 @@ const deleteSchoolStudentRecord = async (
   console.log(
     `previousDuplicatedSchoolStudentRecords ${previousDuplicatedSchoolStudentRecords.length}`
   );
-  const schoolStudentIDsToDelete =
-    previousDuplicatedSchoolStudentRecords.filter(
-      (schoolStudent) => schoolStudent.id !== schoolStudentToKeepID
-    );
+  const schoolStudentIDsToDelete = previousDuplicatedSchoolStudentRecords
+    .filter((schoolStudent) => schoolStudent.id !== schoolStudentToKeepID)
+    .map((schoolStudent) => schoolStudent.id);
   console.log(`schoolStudentIDsToDelete ${schoolStudentIDsToDelete.length}`);
   schoolStudentIDsToDelete.push(schoolStudentID);
   console.log(
@@ -739,28 +736,39 @@ const updateStudentRecord = async (
   }
 };
 
-const updateSchoolStudentRecord = async (mergedData, schoolStudent) => {
+const updateSchoolStudentRecordFromPreviousYears = async (
+  mergedData,
+  schoolStudentsRecordsFromPreviousYears
+) => {
   try {
-    const input = {
-      firstName: mergedData.firstName,
-      lastName: mergedData.lastName,
-      yearLevelID: mergedData.yearLevelID,
-      id: schoolStudent.id,
-      schoolID: schoolStudent.schoolID,
-      studentID: schoolStudent.studentID,
-      schoolYear: schoolStudent.schoolYear,
-    };
+    for (
+      let index = 0;
+      index < schoolStudentsRecordsFromPreviousYears.length;
+      index++
+    ) {
+      const schoolStudentRecordsFromPreviousYears =
+      schoolStudentsRecordsFromPreviousYears[index];
+      const input = {
+        firstName: mergedData.firstName,
+        lastName: mergedData.lastName,
+        yearLevelID: mergedData.yearLevelID,
+        id: schoolStudentRecordsFromPreviousYears.id,
+        schoolID: schoolStudentRecordsFromPreviousYears.schoolID,
+        studentID: schoolStudentRecordsFromPreviousYears.studentID,
+        schoolYear: schoolStudentRecordsFromPreviousYears.schoolYear,
+      };
 
-    const result = await request({
-      query: udpateSchoolStudent,
-      variables: { input },
-    });
-    if (result?.errors) {
-      console.error(
-        `error when updating school student records ${JSON.stringify(
-          result.errors
-        )}`
-      );
+      const result = await request({
+        query: udpateSchoolStudent,
+        variables: { input },
+      });
+      if (result?.errors) {
+        console.error(
+          `error when updating school student records ${JSON.stringify(
+            result.errors
+          )}`
+        );
+      }
     }
   } catch (error) {
     console.error("error when updating school student record", error);
@@ -781,8 +789,6 @@ const updateSchoolStudentsInPreviousYearsForStudentToDelete = async (
       }
     );
 
-    console.log(schoolStudentRecords?.length);
-
     for (let index = 0; index < schoolStudentRecords.length; index++) {
       const schoolStudent = schoolStudentRecords[index];
       const input = {
@@ -801,7 +807,9 @@ const updateSchoolStudentsInPreviousYearsForStudentToDelete = async (
       });
 
       console.log(
-        `Updating school student ${schoolStudent.id} - studentID: ${studentIDToKeep} - result: ${JSON.stringify(result)}`
+        `Updating school student ${
+          schoolStudent.id
+        } - studentID: ${studentIDToKeep} - result: ${JSON.stringify(result)}`
       );
     }
   } catch (error) {
@@ -826,7 +834,7 @@ module.exports = {
   getWAMLicenceHistory,
   createMergedStudentDataRecords,
   updateWAMStudentLicenceHistory,
-  updateSchoolStudentRecord,
+  updateSchoolStudentRecordFromPreviousYears,
   updateStudentRecord,
   createMergedStudentDataRecordsGenericMethod,
   updateSchoolStudentsInPreviousYearsForStudentToDelete,

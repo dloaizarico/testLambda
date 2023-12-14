@@ -1,4 +1,3 @@
-
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 // It validates the event data received, it must contain two school student IDs and the data to update.
