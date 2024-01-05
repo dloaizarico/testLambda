@@ -657,9 +657,6 @@ async function createStudentLogins(docClient, props) {
         docClient,
         props.schoolId
       );
-
-      console.log(schoolStudentsWithIsolatedAndDistanceEducation);
-
     // TODO: call and implement method that returns for all schoolStudents in 2023 that receive isolated education, the userID that has been already assigned to the first schoolStudent created in the year.
     // This needs to go into a map.
     const userIdMapForIsolatedAndDistanceEducation =
@@ -667,9 +664,6 @@ async function createStudentLogins(docClient, props) {
         docClient,
         schoolStudentsWithIsolatedAndDistanceEducation
       );
-
-      console.log(userIdMapForIsolatedAndDistanceEducation);
-
     // Read the schoolStudents for the school (all records will need to be updated)
     console.time("createStudentLogins");
     // Clean out any existing Cognito users and User records
@@ -791,7 +785,6 @@ async function createStudentLogins(docClient, props) {
             student.id
           );
           if (userID) {
-            console.log("---------------------------- entered here");
             return { studentId: student.id, userId: userID };
           } else {
             return createUser(docClient, student, school);
@@ -1090,7 +1083,6 @@ async function setStudentDepartedInSchool(docClient, props) {
     docClient,
     props.schoolId
   );
-  console.log("schoolStudents", schoolStudents);
 
   let departedStudentsMap = new Map();
   let currentStudentMap = new Map();
@@ -1126,7 +1118,7 @@ async function setStudentDepartedInSchool(docClient, props) {
         mostRecentSchoolStudent = studentSchool;
       }
     }
-    //console.log("mostRecentSchoolStudent", mostRecentSchoolStudent);
+    
     if (mostRecentSchoolStudent.schoolID === props.schoolId) {
       // not departed
       schoolStudent.studentDepartedPending = false;

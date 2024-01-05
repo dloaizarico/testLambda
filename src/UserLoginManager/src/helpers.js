@@ -325,17 +325,11 @@ async function getUserIDMapForIsolatedAndDistanceSchoolStudentEducation(
         docClient,
         schoolStudent.studentID
       );
-
-    console.log(schoolStudentsInCurrentYear);
-
     const sortedSchoolStudentsInCurrentYear = _.sortBy(
       schoolStudentsInCurrentYear,
       "createdAt",
       "ASC"
     );
-
-    console.log(sortedSchoolStudentsInCurrentYear);
-
     let userID = "";
     for (let i = 0; i < sortedSchoolStudentsInCurrentYear.length; i++) {
       const schoolStudent = sortedSchoolStudentsInCurrentYear[i];
@@ -343,7 +337,6 @@ async function getUserIDMapForIsolatedAndDistanceSchoolStudentEducation(
         userID = schoolStudent.userId;
         break;
       }
-  
     }
 
     if (userID !== "") {
@@ -1263,7 +1256,6 @@ const createUserNotification = async (
     };
     await docClient.put(params).promise();
   } catch (error) {
-    console.log(error);
     logger.error(
       `error when creating the notification record, ${JSON.stringify(error)}`
     );
