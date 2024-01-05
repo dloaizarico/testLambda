@@ -312,6 +312,26 @@ async function getSchoolStudentsByStudentIdForTheCurrentYear(
   }
 } /// end getSchoolStudentsByStudentIdForTheCurrentYear()
 
+function getFirstUserCreatedForIsolatedAndDistanceSchoolStudent(
+  schoolStudentsInCurrentYear
+) {
+  const sortedSchoolStudentsInCurrentYear = _.sortBy(
+    schoolStudentsInCurrentYear,
+    "createdAt",
+    "ASC"
+  );
+
+  let userID = "";
+  for (let i = 0; i < sortedSchoolStudentsInCurrentYear.length; i++) {
+    const schoolStudent = sortedSchoolStudentsInCurrentYear[i];
+    if (schoolStudent.userId) {
+      userID = schoolStudent.userId;
+      break;
+    }
+  }
+  return userID;
+}
+
 async function getUserIDMapForIsolatedAndDistanceSchoolStudentEducation(
   docClient,
   schoolStudents
@@ -325,19 +345,10 @@ async function getUserIDMapForIsolatedAndDistanceSchoolStudentEducation(
         docClient,
         schoolStudent.studentID
       );
-    const sortedSchoolStudentsInCurrentYear = _.sortBy(
-      schoolStudentsInCurrentYear,
-      "createdAt",
-      "ASC"
+
+    let userID = getFirstUserCreatedForIsolatedAndDistanceSchoolStudent(
+      schoolStudentsInCurrentYear
     );
-    let userID = "";
-    for (let i = 0; i < sortedSchoolStudentsInCurrentYear.length; i++) {
-      const schoolStudent = sortedSchoolStudentsInCurrentYear[i];
-      if (schoolStudent.userId) {
-        userID = schoolStudent.userId;
-        break;
-      }
-    }
 
     if (userID !== "") {
       userIDMapForIsolatedAndDistanceEducation.set(
@@ -360,7 +371,7 @@ async function getSchoolStudentsByStudentId(docClient, studentId) {
       ":studentID": studentId,
     },
     ProjectionExpression:
-      "createdAt, id, studentID, firstName, lastName, schoolID, schoolYear, yearLevelID, userId",
+      "createdAt, id, studentID, firstName, lastName, schoolID, schoolYear, yearLevelID, userId, doesReceiveIsolatedAndDistanceEducation",
   };
   try {
     let resp = await docClient.query(params).promise();
@@ -1256,6 +1267,7 @@ const createUserNotification = async (
     };
     await docClient.put(params).promise();
   } catch (error) {
+    console.log(error);
     logger.error(
       `error when creating the notification record, ${JSON.stringify(error)}`
     );
@@ -1289,4 +1301,5 @@ module.exports = {
   createEndProcessLog,
   getIsolatedAndDistanceEducationSchoolStudents,
   getUserIDMapForIsolatedAndDistanceSchoolStudentEducation,
+  getFirstUserCreatedForIsolatedAndDistanceSchoolStudent
 };

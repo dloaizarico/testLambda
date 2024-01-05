@@ -35,6 +35,7 @@ const {
   createSchoolOperationLog,
   getIsolatedAndDistanceEducationSchoolStudents,
   getUserIDMapForIsolatedAndDistanceSchoolStudentEducation,
+  getFirstUserCreatedForIsolatedAndDistanceSchoolStudent,
 } = require("./helpers");
 
 // some return codes
@@ -561,8 +562,13 @@ async function createOneStudentLogin(docClient, props) {
     docClient,
     props.studentId
   );
+  let selectedSchoolStudent = {};
   let currentSchoolStudent = {};
+
   for (const schoolStudent of schoolStudents) {
+    if (schoolStudent.id === props.schoolStudentID) {
+      selectedSchoolStudent = schoolStudent;
+    }
     if (schoolStudent.schoolID !== props.schoolId) continue;
     if (!currentSchoolStudent.id) {
       currentSchoolStudent = schoolStudent;
@@ -577,31 +583,79 @@ async function createOneStudentLogin(docClient, props) {
 
   logToWinstom("current schoolStudent", currentSchoolStudent);
 
-  // Clean out the login and any orphans that may exist
-  let nullifyUserIds = true;
-  await cleanupLogin(docClient, schoolStudents, nullifyUserIds);
-
   let school = await getSchoolRecord(docClient, props.schoolId); //{id,schoolName,studentLoginEnabled,domainName}
   logToWinstom("school", school);
-  // Create the new Cognito user and DynamoDB User record and return the new userId
-  let newUser = await createUser(docClient, foundStudent, school);
-  // returns { studentId: student.id, userId: newUser.userId }
-  logToWinstom("new user", newUser);
-  if (newUser.err) {
-    return { err: newUser.err }; // newUser.err is a string message
+
+  console.log("selectedSchoolStudent",selectedSchoolStudent);
+
+  if (
+    selectedSchoolStudent &&
+    selectedSchoolStudent.doesReceiveIsolatedAndDistanceEducation === 1
+  ) {
+    console.log("----------------------->entered here");
+    const isolatedAndDistanceSchoolStudents = schoolStudents.filter(
+      (schoolStudent) =>
+        schoolStudent.doesReceiveIsolatedAndDistanceEducation === 1
+    );
+
+    const userID = getFirstUserCreatedForIsolatedAndDistanceSchoolStudent(
+      isolatedAndDistanceSchoolStudents
+    );
+    let newUser;
+    if (userID === "") {
+      newUser = await createUser(docClient, foundStudent, school);
+      logToWinstom("new user", newUser);
+
+      if (newUser.err) {
+        return { err: newUser.err }; // newUser.err is a string message
+      }
+    }
+    console.log(newUser);
+    let didUpdateFail = false;
+    for (
+      let index = 0;
+      index < isolatedAndDistanceSchoolStudents.length;
+      index++
+    ) {
+      const schoolStudent = isolatedAndDistanceSchoolStudents[index];
+
+      let response = await updateSchoolStudentUserId(
+        docClient,
+        schoolStudent.id,
+        userID && userID!== ""? userID: newUser.userId
+      );
+      if (response.err) didUpdateFail = true;
+    }
+
+    if (didUpdateFail)
+      return {
+        err: `UPDATE_SCHOOLSTUDENT_USERID_FAILED`,
+      };
+  } else {
+    console.log("----------------------->entered here 222");
+    // Clean out the login and any orphans that may exist
+    let nullifyUserIds = true;
+    await cleanupLogin(docClient, schoolStudents, nullifyUserIds);
+    // Create the new Cognito user and DynamoDB User record and return the new userId
+    let newUser = await createUser(docClient, foundStudent, school);
+    // returns { studentId: student.id, userId: newUser.userId }
+    logToWinstom("new user", newUser);
+    if (newUser.err) {
+      return { err: newUser.err }; // newUser.err is a string message
+    }
+    // Update only the latest schoolStudent in this school to the new userId
+    let response = await updateSchoolStudentUserId(
+      docClient,
+      currentSchoolStudent.id,
+      newUser.userId
+    );
+    if (response.err) {
+      return {
+        err: `UPDATE_SCHOOLSTUDENT_USERID_FAILED ${response.schoolStudentId}`,
+      };
+    }
   }
 
-  // Update only the latest schoolStudent in this school to the new userId
-  let response = await updateSchoolStudentUserId(
-    docClient,
-    currentSchoolStudent.id,
-    newUser.userId
-  );
-  if (response.err) {
-    return {
-      err: `UPDATE_SCHOOLSTUDENT_USERID_FAILED ${response.schoolStudentId}`,
-    };
-  }
   return ENABLE_LOGIN_SUCCESSFUL;
 } // end function createOneStudentLogin()
 
@@ -657,6 +711,7 @@ async function createStudentLogins(docClient, props) {
         docClient,
         props.schoolId
       );
+
     // TODO: call and implement method that returns for all schoolStudents in 2023 that receive isolated education, the userID that has been already assigned to the first schoolStudent created in the year.
     // This needs to go into a map.
     const userIdMapForIsolatedAndDistanceEducation =
@@ -664,6 +719,7 @@ async function createStudentLogins(docClient, props) {
         docClient,
         schoolStudentsWithIsolatedAndDistanceEducation
       );
+
     // Read the schoolStudents for the school (all records will need to be updated)
     console.time("createStudentLogins");
     // Clean out any existing Cognito users and User records
@@ -1083,6 +1139,7 @@ async function setStudentDepartedInSchool(docClient, props) {
     docClient,
     props.schoolId
   );
+  console.log("schoolStudents", schoolStudents);
 
   let departedStudentsMap = new Map();
   let currentStudentMap = new Map();
@@ -1118,7 +1175,7 @@ async function setStudentDepartedInSchool(docClient, props) {
         mostRecentSchoolStudent = studentSchool;
       }
     }
-    
+    //console.log("mostRecentSchoolStudent", mostRecentSchoolStudent);
     if (mostRecentSchoolStudent.schoolID === props.schoolId) {
       // not departed
       schoolStudent.studentDepartedPending = false;
