@@ -1,13 +1,15 @@
 const path = require("path");
+const dayjs = require("dayjs");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../../.env") });
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
-const { logger } = require("./logger");
+const { logger } = require("../logger");
 const { getStudentBySchoolYearAndStudentID } = require("../graphql/bpqueries");
 const HANDWRITINGLOG_TABLE_NAME = "HandwritingLog";
 const STUDENTS_HANDWRITINGLOG_TABLE_NAME = "StudentHandwritingLog";
 const { GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { v4: uuidv4 } = require("uuid");
+const PDFDocument = require("pdf-lib").PDFDocument;
 const {
   validateEssay,
   getPrompt,
@@ -17,6 +19,8 @@ const {
   createEssay,
   getActivity,
   updateStudentHandwritingLog,
+  saveEssayText,
+  submitEssay,
 } = require("../api");
 
 /**
@@ -35,9 +39,9 @@ const createFinalPDFsForStudents = async (
     // get the pdfURLs involved for this student essay after the teacher match exceptions.
     const filesToDownload = attributedPages.map((page) => page.pdfUrl);
     // Download the files from s3, this is done at this point to avoid downloading the same file multiple times as it will download only the unique URLs from the array.
-    const pdfContentPerURL = downloadOriginalPDFFilesFromS3([
+    const pdfContentPerURL = await downloadOriginalPDFFilesFromS3([
       ...new Set(filesToDownload),
-    ]);
+    ], s3Client);
     // It creates the final PDF for this student.
     const finalPDF = await PDFDocument.create();
     for (let index = 0; index < attributedPages.length; index++) {
@@ -56,7 +60,7 @@ const createFinalPDFsForStudents = async (
     const id = uuidv4();
     // Save the PDF object to get the bytes.
     const finalPDFBytes = await finalPDF.save();
-    const s3FileKey = `public/handwriting/${activityID}/${studentData.student.id}/${studentData.student.id}-${id}.pdf`;
+    const s3FileKey = `handwriting/${activityID}/${studentData.student.id}/${studentData.student.id}-${id}.pdf`;
     fileUrlsPerStudent.set(studentData.student.id, s3FileKey);
     // upload the final pdf to S3.
     await createFileInBucket(s3Client, s3FileKey, finalPDFBytes);
@@ -84,10 +88,10 @@ const createFileInBucket = async (s3Client, key, fileContent) => {
  * @returns map with key URL of the file and value the S3 file content.
  */
 const downloadOriginalPDFFilesFromS3 = async (fileURLS, s3Client) => {
+  
   const pdfContentPerURL = new Map();
   for (let index = 0; index < fileURLS.length; index++) {
-    const url = fileURLS[index];
-
+    const url = `public/${fileURLS[index]}`;
     const command = new GetObjectCommand({
       Bucket: process.env.BUCKET,
       Key: url,
@@ -96,7 +100,7 @@ const downloadOriginalPDFFilesFromS3 = async (fileURLS, s3Client) => {
     const response = await s3Client.send(command);
 
     let pdfString = await response.Body?.transformToString("base64");
-    pdfContentPerURL.set(url, pdfString);
+    pdfContentPerURL.set(fileURLS[index], pdfString);
   }
   return pdfContentPerURL;
 };
@@ -155,11 +159,13 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
         ...handwritingLog,
         recordState: "MATCHED",
       };
+      input.numberOfStudents = updatedStudentItemsWithPages.length
+
       const params = {
         TableName: `${HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
         Item: input,
       };
-      await ddb.put(params).promise();
+      const result = await ddbClient.put(params).promise();
 
       const studentHandwritingLogs = [];
       // Creating new studentHandwritingLogs.
@@ -171,7 +177,11 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
         const studentData = updatedStudentItemsWithPages[index];
         logger.debug(`studentData object info: ${JSON.stringify(studentData)}`);
 
-        const s3UrlFile = fileUrlsPerStudent.get(studentData.student.id);
+        let s3UrlFile = fileUrlsPerStudent.get(studentData.student.id);
+
+        if(!s3UrlFile || s3UrlFile===""){
+          s3UrlFile = studentData.attributedPages[0]?.pdfUrl
+        }
 
         const newEssayText = studentData.attributedPages.reduce(
           (prev, page, index) => {
@@ -212,7 +222,7 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
           TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
           Item: studentHandwritingLogInput,
         };
-        await ddb.put(params).promise();
+        await ddbClient.put(params).promise();
         studentHandwritingLogs.push(studentHandwritingLogInput);
       }
       return studentHandwritingLogs;
@@ -254,18 +264,21 @@ const getCurrentLogsByActivity = async (ddbClient, activityID) => {
         ":activityID": activityID,
       },
     };
-    const handwritingLogs = [];
-    const studentHandwritingLogs = [];
+    let handwritingLogs = [];
+    let studentHandwritingLogs = [];
     do {
       const queryResult = await ddbClient.query(params).promise();
       handwritingLogs = [...handwritingLogs, ...queryResult.Items];
+      
       params.ExclusiveStartKey = queryResult.LastEvaluatedKey;
-    } while (typeof items.LastEvaluatedKey !== "undefined");
+    } while (typeof params.ExclusiveStartKey !== "undefined");
+
+    
 
     for (let index = 0; index < handwritingLogs.length; index++) {
       const handwritingLog = handwritingLogs[index];
       const data = await getStudentHandwritingLogsByLogParentID(
-        handwritingLog.id
+        handwritingLog.id, ddbClient
       );
       studentHandwritingLogs = [...studentHandwritingLogs, ...data];
     }
@@ -279,26 +292,27 @@ const getCurrentLogsByActivity = async (ddbClient, activityID) => {
   }
 };
 
-const getStudentHandwritingLogsByLogParentID = async (logParentID) => {
+const getStudentHandwritingLogsByLogParentID = async (logParentID, ddbClient) => {
   try {
     const params = {
-      TableName: `${HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+      TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
       IndexName: "byLogParentID",
       KeyConditionExpression: "uploadID = :uploadID",
       ExpressionAttributeValues: {
         ":uploadID": logParentID,
       },
     };
-    const studentHandwritingLogs = [];
+    let studentHandwritingLogs = [];
     do {
       const queryResult = await ddbClient.query(params).promise();
+      
       studentHandwritingLogs = [
         ...studentHandwritingLogs,
         ...queryResult.Items,
       ];
 
       params.ExclusiveStartKey = queryResult.LastEvaluatedKey;
-    } while (typeof items.LastEvaluatedKey !== "undefined");
+    } while (typeof params.ExclusiveStartKey !== "undefined");
     return studentHandwritingLogs;
   } catch (error) {
     logger.error(

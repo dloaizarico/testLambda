@@ -537,4 +537,6 @@ module.exports = {
   createEssay,
   getActivity,
   updateStudentHandwritingLog,
+  saveEssayText,
+  submitEssay
 };

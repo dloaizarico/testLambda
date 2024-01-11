@@ -20,7 +20,8 @@
     "d3": "^6.5.0",
     "logform": "^2.5.1",
     "uuid": "^9.0.0",
-    "winston": "^3.8.2"
+    "winston": "^3.8.2",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.92",

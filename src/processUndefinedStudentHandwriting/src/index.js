@@ -10,14 +10,15 @@ const event = require("./event.json")
 const handler = async (event) => {
   try {
     logger.debug(`EVENT: ${JSON.stringify(event)}`);
-    const inputData = JSON.parse(event.body);
+    // const inputData = JSON.parse(event.body);
+    const inputData = event.body;
     const ddbClient = new AWS.DynamoDB.DocumentClient();
 
     const systemParam = await getSystemParameterByKey(
       "REACT_APP_EMT_API_BASE_URL"
     );
     const ENDPOINT = systemParam?.paramData;
-    if (inputData.lambdaVersion === 2) {
+    if (inputData.lambdaVersion === "V2") {
       return await handlerV2(inputData, ddbClient, ENDPOINT);
     }
 
