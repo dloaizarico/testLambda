@@ -1,0 +1,24 @@
+{
+  "Records": [
+    {
+      "messageId": "2e8f09f2-fe26-40dc-8f58-0d3de42e9fd1",
+      "receiptHandle": "AQEB55XZ+TR6pLG0vPMBdpUioHLR9YNvKx90zKxV45oZdYfUthug1SkZ0TzGtyU4SVj93VejAp4hHJgl7VO2ldu+UIUAyNwGLJsQFf3o9yq9a4c7DBG9aq8vyD2remhMwCoWEi+Q69YQalYnEf0270BKuIpvG30iu1tz1m2QEHeVxU1ko8gAYW9TFQ0RWuI9aXryZcJBXiYWxHkQc477ccMonLG1PkBOwZsbcybmULcL10QQUeZureiVQEjUtuyhTi9PYwf3m4nylOg5QiLHmpbqU3+xeLuFiZdjEih4keGwYlIo4aWsagmMkxKeB6yd/cqzoUU3yrKeq0RzrqzRrJ+76B+rgWT4YASiH0vqGZaetQ0szv3bBnSeZxi2hI8rJMK6VX8rUsY6wCGXYrKGN9burajV/Ma+HplS5/mAZZ0Pmn05OvEDltQjcVguHcdpmLnE",
+      "body": {
+        "payloadID": "6cc4261-b6d4-4112-a23b-3b8276f1468d",
+        "userEmail": "brendan@bcperth.com"
+      },
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "AWSTraceHeader": "Root=1-65a498e5-7c119b183e70df706e230e9d;Parent=3f7eccb23878492b;Sampled=0;Lineage=67ad3e70:0",
+        "SentTimestamp": "1705285864423",
+        "SenderId": "AROA6NOEUKDOXPWE2QVDM:processUndefinedStudentHandwriting-develop",
+        "ApproximateFirstReceiveTimestamp": "1705285874424"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "2f7a5561d34c705a7f384ae021ce4dd6",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:ap-southeast-2:990939205853:process-matching-exceptions-queue-develop",
+      "awsRegion": "ap-southeast-2"
+    }
+  ]
+}
