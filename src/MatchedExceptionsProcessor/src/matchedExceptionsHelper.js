@@ -8,8 +8,8 @@ const {
 const { logger } = require("./logger");
 
 const processMatchedExceptions = async (
-  payload,
   ddbClient,
+  payload,
   s3Client,
   ENDPOINT
 ) => {
@@ -22,6 +22,8 @@ const processMatchedExceptions = async (
       ),
       s3Client
     );
+
+      console.log(fileUrlsPerStudent);
 
     // Save the new logs in the DB and update the previous ones status.
     const studentHandwritingLogs =

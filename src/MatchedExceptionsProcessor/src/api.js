@@ -29,7 +29,7 @@ const QUEUE_PAYLOAD_TABLE_NAME = "QueuePayload";
  * @param {*} payloadID
  * @returns
  */
-const getQueuePayloadByID = async (payloadID) => {
+const getQueuePayloadByID = async (ddbClient, payloadID) => {
   let params = {
     TableName: `${QUEUE_PAYLOAD_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
     Key: {
@@ -52,11 +52,11 @@ const getQueuePayloadByID = async (payloadID) => {
  * It updates the payload in dynamo to define that it was processed by the queue.
  * @returns
  */
-const updateQueuePayloadToRead = async (payloadID) => {
+const updateQueuePayloadToRead = async (ddbClient, payloadID) => {
   let params = {
     TableName: `${QUEUE_PAYLOAD_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
     Key: {
-      id,
+      id: payloadID,
     },
     UpdateExpression: "set isRead = :isRead",
     ExpressionAttributeValues: { ":isRead": true },
@@ -64,7 +64,7 @@ const updateQueuePayloadToRead = async (payloadID) => {
   };
 
   try {
-    let result = await docClient.update(params).promise();
+    let result = await ddbClient.update(params).promise();
     return result;
   } catch (error) {
     logToWinstom("error updating schoolStudent", error);
@@ -115,6 +115,8 @@ const createFinalPDFsForStudents = async (
   updatedStudentItemsWithPages,
   s3Client
 ) => {
+
+  
   const fileUrlsPerStudent = new Map();
   // For each student data...
   for (let index = 0; index < updatedStudentItemsWithPages.length; index++) {
@@ -148,7 +150,7 @@ const createFinalPDFsForStudents = async (
     const s3FileKey = `handwriting/${activityID}/${studentData.student.id}/${studentData.student.id}-${id}.pdf`;
     fileUrlsPerStudent.set(studentData.student.id, s3FileKey);
     // upload the final pdf to S3.
-    await createFileInBucket(s3Client, s3FileKey, finalPDFBytes);
+    await createFileInBucket(s3Client, `public/${s3FileKey}`, finalPDFBytes);
   }
   return fileUrlsPerStudent;
 };
@@ -259,7 +261,6 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
         index++
       ) {
         const studentData = updatedStudentItemsWithPages[index];
-        logger.debug(`studentData object info: ${JSON.stringify(studentData)}`);
 
         let s3UrlFile = fileUrlsPerStudent.get(studentData.student.id);
 
@@ -297,11 +298,6 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
           essayID: studentData.essayID,
         };
 
-        logger.debug(
-          `studentHandwritingLog object info: ${JSON.stringify(
-            studentHandwritingLogInput
-          )}`
-        );
         const params = {
           TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
           Item: studentHandwritingLogInput,
@@ -775,7 +771,7 @@ const updateStudentHandwritingLog = async (
       Key: {
         id: studentHandwritingLogID,
       },
-      TableName: `${STUDENT_HANDWRITING_LOG}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+      TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
       UpdateExpression: essayID
         ? "set observations = :observations, completed = :completed, essayID =:essayID"
         : "set observations = :observations, completed = :completed",
@@ -811,6 +807,7 @@ const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
         authorization: bearerToken,
       },
     });
+    console.log("save esssay text", result, text);
     logger.debug(`essayId, ${result?.data?.essayId}`);
     return result?.data?.essayId;
   } catch (error) {
@@ -831,6 +828,7 @@ const submitEssay = async (essayId, ENDPOINT, bearerToken) => {
         authorization: bearerToken,
       },
     });
+    console.log("result", result);
     logger.debug(`essayId, ${result?.data?.essayId}`);
     return result?.data?.essayId;
   } catch (error) {
@@ -859,4 +857,3 @@ module.exports = {
   getQueuePayloadByID,
   updateQueuePayloadToRead,
 };
-

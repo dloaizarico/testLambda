@@ -10,9 +10,7 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 
 const logger = winston.createLogger({
   transports: [
-    new winston.transports.Console({
-      format: consoleLogFormat,
-    }),
+    
   ],
 });
 // default to info level except in development, where we want debug

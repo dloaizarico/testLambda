@@ -12,7 +12,7 @@ const { request } = require("./appSyncRequest");
 const { S3Client } = require("@aws-sdk/client-s3");
 const { processMatchedExceptions } = require("./matchedExceptionsHelper");
 const { createNotification } = require("./graphql/bpmutations");
-const event = require("./event.json")
+const event = require("./event.json");
 
 // Constants for notifications.
 const sysType = "notify";
@@ -54,25 +54,31 @@ const handler = async (event) => {
 
       const ENDPOINT = systemParam?.paramData;
       // Loading payload from dynamo.
-      const payloadRecord = await getQueuePayloadByID(message?.payloadID);
+      const payloadRecord = await getQueuePayloadByID(
+        ddbClient,
+        message?.payloadID
+      );
       let result = {};
       if (!payloadRecord || Object.keys(payloadRecord).length === 0) {
         logger.error(`payload received was empty, unable to continue`);
         notificationMessage =
           "There was an error and the matching didn't finish, please contact support.";
-      } else if (payloadRecord.isRead) {
-        logger.error(`The payload had been processed already.`);
-        notificationMessage =
-          "There was an error and the matching didn't finish, please contact support.";
       } else {
+        // } else if (payloadRecord.isRead) {
+        //   logger.error(`The payload had been processed already.`);
+        //   notificationMessage =
+        //     "There was an error and the matching didn't finish, please contact support.";
+        // } else {
         result = await processMatchedExceptions(
-          payloadRecord.payload,
           ddbClient,
+          payloadRecord.payload,
           s3Client,
           ENDPOINT
         );
-        await updateQueuePayloadToRead(message?.payloadID);
+        await updateQueuePayloadToRead(ddbClient, message?.payloadID);
       }
+
+      logger.debug(`Process is finished ${result}`);
 
       // Creating the notification for the user.
       const input = {
@@ -84,7 +90,6 @@ const handler = async (event) => {
         recipient: message.userEmail,
         sender,
         expiryTime,
-        notificationPayload: result?.toString(),
       };
 
       await request({
