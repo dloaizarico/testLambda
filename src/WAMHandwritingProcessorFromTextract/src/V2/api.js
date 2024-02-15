@@ -30,7 +30,6 @@ const {
   read,
   sender,
   expiryDaysForNotification,
-  notificationMessage,
   fuzzyMatchingLambdaName,
   matchStudentByNameUsingIndexesMethod,
   matchStudentByNameWithStrictEqualityMethod,
@@ -52,7 +51,13 @@ const processEssays = async (
   activityClassroomStudents,
   lambdaService
 ) => {
+  // Get unique student IDs within that classroom.
+  const activityClassroomStudentsIDs = activityClassroomStudents?.map(
+    (activityClassroomStudent) => activityClassroomStudent.studentID
+  );
   const studentsHandWritingLog = [];
+  // It saves the student IDs of those essays that have been created so far.
+  const processedStudentIDs = [];
   logger.debug(
     `Essay process started: ${new Date().toLocaleDateString()}-${new Date().toTimeString()}  \n`
   );
@@ -80,6 +85,7 @@ const processEssays = async (
         studentHandWritingLog.studentID = essay.key;
 
         studentHandWritingLog.completed = false;
+        studentsHandWritingLog.push(studentHandWritingLog);
       } else {
         // Validate essay object, first name, last name and DOB are correct plus the text is a proper one.
         let didEssayPassValidations = validateEssay(essay);
@@ -101,8 +107,13 @@ const processEssays = async (
             lambdaService
           );
         }
-
-        if (studentID && didEssayPassValidations) {
+        // If the student has been found and the essay passed the validations and the student does not have an essay already created, it then creates the essay.
+        if (
+          studentID &&
+          didEssayPassValidations &&
+          !processedStudentIDs.includes(studentID) &&
+          activityClassroomStudentsIDs.includes(studentID)
+        ) {
           studentHandWritingLog.studentID = studentID;
           const schoolStudentQueryInput = {
             schoolID: activity?.schoolID,
@@ -135,6 +146,7 @@ const processEssays = async (
                 studentHandWritingLog.essayID = essayId;
                 await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
                 studentHandWritingLog.completed = true;
+                processedStudentIDs.push(studentID);
               } else {
                 studentHandWritingLog.studentID = essay.key;
                 studentsPageMapping.set(essay.key, essay.pages);
@@ -166,17 +178,42 @@ const processEssays = async (
 
             studentHandWritingLog.completed = false;
           }
+          studentsHandWritingLog.push(studentHandWritingLog);
         } else {
-          studentHandWritingLog.studentID = essay.key;
-          studentsPageMapping.set(essay.key, essay.pages);
+          // If the essay was identified but the student is not part of the classroom, these pages are classified as unidentified. Therefore, we need to create separate logs for each page.
+          if (Array.isArray(essay.pages)) {
+            console.log();
+            for (let index = 0; index < essay.pages.length; index++) {
 
-          logger.info(
-            `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
-          );
-          logger.info(
-            `----------------------------------------------------------------- \n`
-          );
-          studentHandWritingLog.completed = false;
+              let studentHandwritingLogRecord = {...studentHandWritingLog}
+              const pageObject = essay.pages[index];
+              const newKey = `${essay.key}-page${pageObject?.studentPage}`;
+              studentHandwritingLogRecord.studentID = newKey;
+              studentHandwritingLogRecord.essayFromTextract = pageObject?.text;
+              studentsPageMapping.set(newKey, pageObject);
+
+              logger.info(
+                `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not identified properly, please match those exceptions. \n`
+              );
+              logger.info(
+                `----------------------------------------------------------------- \n`
+              );
+              studentHandwritingLogRecord.completed = false;
+              studentsHandWritingLog.push(studentHandwritingLogRecord);
+            }
+          } else {
+            studentHandWritingLog.studentID = essay.key;
+            studentsPageMapping.set(essay.key, essay.pages);
+
+            logger.info(
+              `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
+            );
+            logger.info(
+              `----------------------------------------------------------------- \n`
+            );
+            studentHandWritingLog.completed = false;
+            studentsHandWritingLog.push(studentHandWritingLog);
+          }
         }
         logger.debug(
           `Process finish for student: ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}   \n`
@@ -185,7 +222,6 @@ const processEssays = async (
           "----------------------------------------------------------------- \n"
         );
       }
-      studentsHandWritingLog.push(studentHandWritingLog);
     }
   } else {
     logger.info("No essays were found, please contact the support team. \n");
@@ -193,6 +229,9 @@ const processEssays = async (
   logger.debug(
     `Essays process is finished: ${new Date().toLocaleDateString()}   \n`
   );
+
+  console.log(studentsPageMapping);
+  console.log(studentsHandWritingLog);
   return {
     studentsPageMapping,
     studentsHandWritingLog,
@@ -538,11 +577,11 @@ const processTextactResult = async (textractClient, jobId) => {
   }
 };
 
-const createUserNotification = async (userId) => {
+const createUserNotification = async (logObject) => {
   try {
     // Getting the email of the user.
     const userInput = {
-      userId,
+      userId: logObject.uploadUserID,
     };
     const result = await fetchAllNextTokenData(
       "getUserByUserId",
@@ -564,7 +603,7 @@ const createUserNotification = async (userId) => {
       read,
       readDate: "",
       type: "Handwriting uploader",
-      message: notificationMessage,
+      message: `The file ${logObject.uploadedFileName} has been processed, please match any exceptions. `,
       recipient: email,
       sender,
       expiryTime,
@@ -610,7 +649,7 @@ const createLogRecord = async (
         numberOfStudents: logObject.numberOfStudents,
         fileUrl: wasLogUploaded ? generalLogFileKey : "",
         uploadedFileName: logObject.uploadedFileName,
-        recordState: "ACTIVE"
+        recordState: "ACTIVE",
       };
       const params = {
         TableName: `${HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
@@ -663,7 +702,7 @@ const createLogRecord = async (
           splitFileS3URL: splitFileURL,
           completed: studentHandwritingLog.completed,
           essayID: studentHandwritingLog.essayID,
-          recordState: "ACTIVE"
+          recordState: "ACTIVE",
         };
 
         if (pagesContentMap) {

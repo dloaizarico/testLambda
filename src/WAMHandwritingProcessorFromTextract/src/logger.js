@@ -10,22 +10,22 @@ const consoleLogFormat = combine(timestamp(), json()); // json format is useful 
 const NODE_ENV = process.env.NODE_ENV || "development";
 let infoLog = [];
 
-console.log("loggerrrr---------->", infoLog)
+console.log("loggerrrr---------->", infoLog);
 
 const logger = winston.createLogger({
   transports: [
-    new winston.transports.Console({
-      format: consoleLogFormat,
-    }),
+    // new winston.transports.Console({
+    //   format: consoleLogFormat,
+    // }),
   ],
 });
 
-const clearCurrentLog = () =>{
-  infoLog = []
-}
+const clearCurrentLog = () => {
+  infoLog = [];
+};
 
 logger.on("data", async (info) => {
-  console.log("loggerrrr---------->", info, info?.level, info?.message)
+  console.log("loggerrrr---------->", info, info?.level, info?.message);
   if (info && info.level === "info") {
     infoLog.push(info?.message);
   }
@@ -34,7 +34,7 @@ logger.on("data", async (info) => {
 const uploadInfoLogToS3 = async (s3Client, s3LogPath) => {
   try {
     if (infoLog && infoLog.length > 0) {
-      console.log("final log", infoLog)
+      console.log("final log", infoLog);
       const input = {
         Bucket: process.env.BUCKET,
         Key: s3LogPath,

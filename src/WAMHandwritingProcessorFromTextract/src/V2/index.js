@@ -24,7 +24,6 @@ const {
 } = require("./utils");
 
 const { validateEvent } = require("../validations");
-
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
  */
@@ -75,14 +74,20 @@ const handlerV2 = async (event, job) => {
         numberOfPagesDetected,
         pagesContentMapWithProperText,
       } = await processTextactResult(textractClient, job.jobID);
+      console.log(activity.id);
+      
       logger.debug("finish textract");
       pagesContentMapProperText = pagesContentMapWithProperText;
       const essayObjects = groupEssayPagesByStudent(processedPages);
+      
       numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
       logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
       const activityClassroomStudents = await getStudentsInAClassroomAPI(
         activity.classroomID
       );
+
+      console.log("essayObjects",essayObjects[0].pages);
+
       const result = await processEssays(
         essayObjects,
         activity,
@@ -91,11 +96,15 @@ const handlerV2 = async (event, job) => {
         activityClassroomStudents,
         lambdaService
       );
+
+      
       studentsPageMapping = result.studentsPageMapping;
+      
       studentsHandWritingLog = result.studentsHandWritingLog;
+      
     }
   }
-  // return
+  
   const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
     new Date()
   )}-${uuidv4()}-UploadsLog.txt`;
@@ -123,7 +132,7 @@ const handlerV2 = async (event, job) => {
     logObject.fileUrl,
     wasLogUploaded
   );
-  await createUserNotification(logObject.uploadUserID);
+  await createUserNotification(logObject);
 
   clearCurrentLog();
 };

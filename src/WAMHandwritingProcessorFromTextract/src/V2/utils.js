@@ -297,7 +297,7 @@ const createEssayObjects = (pagesContentMap) => {
               cleanedEssayText = textArray.join("\n");
             }
 
-            pagesContentMapWithProperText.set(page, cleanedEssayText);
+            pagesContentMapWithProperText.set(essayPage, cleanedEssayText);
 
             essay = {
               firstName,
@@ -307,6 +307,7 @@ const createEssayObjects = (pagesContentMap) => {
               page: {
                 studentPage: Number(essayPage),
                 pageInDocument: page,
+                text: cleanedEssayText,
               },
               key: `${firstName}${lastName}${DOB}`,
             };
@@ -360,6 +361,7 @@ const createEssayObjects = (pagesContentMap) => {
         page: {
           studentPage: page,
           pageInDocument: page,
+          text: textArray
         },
         key: `unidentified${page}`,
         unidentified: true,
@@ -662,9 +664,12 @@ const groupEssayPagesByStudent = (processedPages) => {
   // get pages that followed the proper template name, dob, page.
   const identifiedPages = processedPages.filter((page) => !page.unidentified);
   // sort identified pages by these attributes so it's easy to combine them by student.
+
+  console.log(identifiedPages);
+
   const sortedIdentifiedPages = _.sortBy(
     identifiedPages,
-    ["firstName", "lastName", "DOB", "essayPage"],
+    ["firstName", "lastName", "DOB", "page.studentPage"],
     ["ASC", "ASC", "ASC", "ASC"]
   );
 
