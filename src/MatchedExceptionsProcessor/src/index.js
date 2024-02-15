@@ -63,12 +63,11 @@ const handler = async (event) => {
         logger.error(`payload received was empty, unable to continue`);
         notificationMessage =
           "There was an error and the matching didn't finish, please contact support.";
+      } else if (payloadRecord.isRead) {
+        logger.error(`The payload had been processed already.`);
+        notificationMessage =
+          "There was an error and the matching didn't finish, please contact support.";
       } else {
-        // } else if (payloadRecord.isRead) {
-        //   logger.error(`The payload had been processed already.`);
-        //   notificationMessage =
-        //     "There was an error and the matching didn't finish, please contact support.";
-        // } else {
         result = await processMatchedExceptions(
           ddbClient,
           payloadRecord.payload,

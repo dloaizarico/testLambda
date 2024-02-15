@@ -1,4 +1,5 @@
 const path = require("path");
+const event = require("./event.json");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const AWS = require("aws-sdk");
 const { getActivityHandwritingLogs } = require("./api");
@@ -7,7 +8,9 @@ const textTractClient = new AWS.Textract();
 const s3 = new AWS.S3();
 const HANDWRITING_ROUTE = "public/handwriting/";
 const { logger } = require("./logger");
-const event = require('./event.json');
+
+// Every transaction sent to textract will be paused for 3 secs until the next one is sent.
+const TEXTRACT_WAIT_TO_AVOID_REACHING_LIMIT = 3000;
 
 const getFilesKeys = async (activityID, filesProcessed) => {
   logger.debug(`activityID ${activityID}`);
@@ -21,14 +24,14 @@ const getFilesKeys = async (activityID, filesProcessed) => {
   try {
     const s3QueryResult = await s3.listObjectsV2(params).promise();
     const filesKeys = [];
-    if (s3QueryResult && s3QueryResult.Contents) {
+    if (s3QueryResult?.Contents) {
       const filesList = s3QueryResult.Contents;
       filesList.forEach((file) => {
         const key = file.Key.toUpperCase();
         logger.debug(`Key ${key}`);
         logger.debug(`condition ${filesProcessed.includes(key)}`);
         if (
-          (key && key.includes(".PDF")) ||
+          key?.includes(".PDF") ||
           key.includes(".PNG") ||
           key.includes(".JPG") ||
           key.includes(".JPEG")
@@ -44,95 +47,101 @@ const getFilesKeys = async (activityID, filesProcessed) => {
               filesKeys.push(file.Key);
             }
           } else {
-            logger.error("Unable to process the file, it does not fulfill the proper structure.")
+            logger.debug(
+              "Unable to process the file, it does not fulfill the proper structure."
+            );
           }
         }
       });
     }
     return filesKeys;
   } catch (error) {
-    logger.error(
+    console.log(error);
+    throw new Error(
       `Error trying to get the files in the folder ${JSON.stringify(error)}`
     );
-    return null;
   }
 };
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
  */
 const handler = async (event) => {
   logger.debug(`EVENT: ${JSON.stringify(event)}`);
-  const inputData = JSON.parse(event.body);
-  if (inputData && inputData.activityID && inputData.userID) {
-    const ddbClient = new AWS.DynamoDB.DocumentClient();
-    const handwritingLogs = await getActivityHandwritingLogs(
-      ddbClient,
-      inputData.activityID
-    );
-    let filesProcessed = [];
-    if (handwritingLogs && handwritingLogs.length > 0) {
-      console.log(handwritingLogs);
-      filesProcessed = handwritingLogs?.map((handwritingLog) =>
-        handwritingLog.uploadedFileName?.toUpperCase()
-      );
-    }
+  // failure jobs that go to the dead letter queue
+  const batchItemFailures = [];
+  for (const record of event.Records) {
+    const { body, messageId } = record;
 
-    const filesKeys = await getFilesKeys(inputData.activityID, filesProcessed);
-    if (filesKeys && filesKeys.length > 0) {
-      const ROLE_ARN = process.env.TEXTRACT_ROLE_ARN;
-      const SNS_TOPIC_ARN = process.env.TEXTRACT_TOPIC_ARN;
+    try {
+      // Getting the payload from the message.
+      const inputData = typeof body === "string" ? JSON.parse(body) : body;
+      if (inputData?.activityID && inputData.userID) {
+        const ddbClient = new AWS.DynamoDB.DocumentClient();
+        const handwritingLogs = await getActivityHandwritingLogs(
+          ddbClient,
+          inputData.activityID
+        );
+        let filesProcessed = [];
+        if (handwritingLogs && handwritingLogs.length > 0) {
+          filesProcessed = handwritingLogs?.map((handwritingLog) =>
+            handwritingLog.uploadedFileName?.toUpperCase()
+          );
+        }
 
-      for (let i = 0; i < filesKeys.length; i++) {
-        const input = {
-          DocumentLocation: {
-            S3Object: {
-              Bucket: process.env.BUCKET_FOR_TEXTRACT,
-              Name: filesKeys[i],
-            },
-          },
-          JobTag: inputData.userID,
-          NotificationChannel: {
-            RoleArn: ROLE_ARN,
-            SNSTopicArn: SNS_TOPIC_ARN,
-          },
-        };
-        const result = await textTractClient
-          .startDocumentTextDetection(input)
-          .promise();
-        logger.debug(`JOB ID generated - ${JSON.stringify(result)}`);
+        const filesKeys = await getFilesKeys(
+          inputData.activityID,
+          filesProcessed
+        );
+        if (filesKeys && filesKeys.length > 0) {
+          const ROLE_ARN = process.env.TEXTRACT_ROLE_ARN;
+          const SNS_TOPIC_ARN = process.env.TEXTRACT_TOPIC_ARN;
+
+          for (let i = 0; i < filesKeys.length; i++) {
+            const input = {
+              DocumentLocation: {
+                S3Object: {
+                  Bucket: process.env.BUCKET_FOR_TEXTRACT,
+                  Name: filesKeys[i],
+                },
+              },
+              // userID - followed by the version of the lambda that will process the request.
+              JobTag: `${inputData.userID}_${inputData.processorVersion}`,
+              NotificationChannel: {
+                RoleArn: ROLE_ARN,
+                SNSTopicArn: SNS_TOPIC_ARN,
+              },
+            };
+            const result = await textTractClient
+              .startDocumentTextDetection(input)
+              .promise();
+            await sleep(TEXTRACT_WAIT_TO_AVOID_REACHING_LIMIT);
+            logger.debug(`JOB ID generated - ${JSON.stringify(result)}`);
+          }
+        } else {
+          throw new Error(
+            "There are no files available to process, please contact support."
+          );
+        }
+      } else {
+        throw new Error("Parameters received were not complete");
       }
-    } else {
-      return {
-        statusCode: 400,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers": "*",
-        },
-        body: JSON.stringify(
-          "There are no files available to process, please contact support."
-        ),
-      };
+    } catch (error) {
+      logger.error(
+        `Error while sending information to textract from message ${messageId} ${error}`
+      );
+      batchItemFailures.push({
+        itemIdentifier: messageId,
+      });
     }
-  } else {
-    return {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "*",
-      },
-      statusCode: 400,
-      body: JSON.stringify("Parameters received were not complete"),
-    };
   }
-  return {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "*",
-    },
-    statusCode: 200,
-    body: JSON.stringify("Process is finished"),
-  };
+  return { batchItemFailures };
 };
 
-
-handler(event)
+handler(event);

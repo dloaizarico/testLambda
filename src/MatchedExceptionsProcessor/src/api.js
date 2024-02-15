@@ -115,8 +115,6 @@ const createFinalPDFsForStudents = async (
   updatedStudentItemsWithPages,
   s3Client
 ) => {
-
-  
   const fileUrlsPerStudent = new Map();
   // For each student data...
   for (let index = 0; index < updatedStudentItemsWithPages.length; index++) {
@@ -232,6 +230,30 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
     );
   }
 
+  const currentMatchedStudentIDs = updatedStudentItemsWithPages.map(
+    (studentData) => studentData?.student.id
+  );
+
+  const archivedMatchedStudentIDs = studentHandwritingLogs.map(
+    (studentHandwritingLog) => studentHandwritingLog
+  );
+
+  // Students that previously had a writting assigned but they don't have it anymore.
+  const removedStudents = [];
+
+  for (let index = 0; index < archivedMatchedStudentIDs.length; index++) {
+    if (
+      !currentMatchedStudentIDs.includes(
+        archivedMatchedStudentIDs[index].studentID
+      )
+    ) {
+      removedStudents.push({
+        studentID: archivedMatchedStudentIDs[index].studentID,
+        essayID: archivedMatchedStudentIDs[index].essayID,
+      });
+    }
+  }
+
   // Creating new handwritinglog record
   let createdAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
   let updatedAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
@@ -261,18 +283,19 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
         index++
       ) {
         const studentData = updatedStudentItemsWithPages[index];
+        logger.debug(`studentData object info: ${JSON.stringify(studentData)}`);
 
         let s3UrlFile = fileUrlsPerStudent.get(studentData.student.id);
 
         if (!s3UrlFile || s3UrlFile === "") {
-          s3UrlFile = studentData.attributedPages[0]?.pdfUrl;
+          s3UrlFile = studentData.attributedPages[0]?.splitFileS3URL;
         }
 
         const newEssayText = studentData.attributedPages.reduce(
           (prev, page, index) => {
-            return prev + page.extractedText;
+            return prev + "\n" + page.extractedText;
           },
-          "\n"
+          ""
         );
 
         // get student name from the student record, fall back to whatever textract gave us
@@ -298,6 +321,11 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
           essayID: studentData.essayID,
         };
 
+        logger.debug(
+          `studentHandwritingLog object info: ${JSON.stringify(
+            studentHandwritingLogInput
+          )}`
+        );
         const params = {
           TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
           Item: studentHandwritingLogInput,
@@ -305,7 +333,11 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
         await ddbClient.put(params).promise();
         studentHandwritingLogs.push(studentHandwritingLogInput);
       }
-      return studentHandwritingLogs;
+      return {
+        studentHandwritingLogs,
+        removedStudents,
+        archivedMatchedStudentIDs,
+      };
     } catch (error) {
       logger.error(
         `error when creating the log record, ${JSON.stringify(error)}`
@@ -406,6 +438,30 @@ const getStudentHandwritingLogsByLogParentID = async (
   }
 };
 
+const getToken = async (activity, studentID) => {
+  const schoolStudentQueryInput = {
+    schoolID: activity.schoolID,
+    schoolYearStudentID: {
+      eq: {
+        schoolYear: new Date().getFullYear(),
+        studentID: studentID,
+      },
+    },
+  };
+  const schoolStudents = await fetchAllNextTokenData(
+    "getStudentBySchool",
+    getStudentBySchoolYearAndStudentID,
+    schoolStudentQueryInput
+  );
+  // Get current users for the student.
+  const schoolStudentEmail = getCurrentStudentUser(schoolStudents);
+  if (schoolStudentEmail && schoolStudentEmail !== "") {
+    const token = await getTokenForAuthentication(schoolStudentEmail);
+    return token;
+  }
+  return null;
+};
+
 /**
  * This method process all the essays after matching exceptions, update related logs and submits the new values to Faculty.
  * @param {*} ddbClient
@@ -420,7 +476,9 @@ const submitFinalEssaysAfterMatching = async (
   activityID,
   promptID,
   ENDPOINT,
-  essays
+  essays,
+  removedStudents,
+  archivedMatchedStudentIDs
 ) => {
   const activity = await getActivity(ddbClient, activityID);
   const prompt = await getPrompt(ddbClient, promptID);
@@ -436,7 +494,9 @@ const submitFinalEssaysAfterMatching = async (
       const essay = essays[i];
       logger.debug("studentHandwritingLogID", essay.id);
 
-      logger.debug(`Processing student: ${essay.studentID} \n`);
+      logger.debug(
+        `Processing student: ${essay.studentID} , name:${essay.studentNameFromTextract} \n`
+      );
       // Validate essay object, first name, last name and DOB are correct plus the text is a proper one.
       const didEssayPassValidations = validateEssay(essay);
 
@@ -445,82 +505,75 @@ const submitFinalEssaysAfterMatching = async (
         didEssayPassValidations &&
         didEssayPassValidations.length === 0
       ) {
-        const schoolStudentQueryInput = {
-          schoolID: activity.schoolID,
-          schoolYearStudentID: {
-            eq: {
-              schoolYear: new Date().getFullYear(),
-              studentID: essay.studentID,
-            },
-          },
-        };
-        const schoolStudents = await fetchAllNextTokenData(
-          "getStudentBySchool",
-          getStudentBySchoolYearAndStudentID,
-          schoolStudentQueryInput
-        );
-        // Get current users for the student.
-        const schoolStudentEmail = getCurrentStudentUser(schoolStudents);
-        if (schoolStudentEmail && schoolStudentEmail !== "") {
-          const token = await getTokenForAuthentication(schoolStudentEmail);
-          if (token) {
-            const bearerToken = `Bearer ${token}`;
-            let essayId;
-            // If the essay was not created before for that student, it's created.
-            if (!essay.essayID) {
-              essayId = await createEssay(
-                activity,
-                prompt,
-                essay.studentID,
-                ENDPOINT,
-                bearerToken
-              );
-            } else {
-              essayId = essay.essayID;
-            }
-
-            if (essayId) {
-              // Calls faculty, submits the essay again and update the log.
-              await saveEssayText(
-                essayId,
-                essay.essayFromTextract,
-                ENDPOINT,
-                bearerToken
-              );
-              await submitEssay(essayId, ENDPOINT, bearerToken);
-              await updateStudentHandwritingLog(
-                ddbClient,
-                essay.id,
-                "Essay submitted.",
-                true,
-                essayId
-              );
-            } else {
-              logger.info(
-                `It was not created the essay for the student ${essay.studentID}, please contact support. \n`
-              );
-              await updateStudentHandwritingLog(
-                ddbClient,
-                essay.id,
-                "It was not created the essay for the student, please contact support. \n",
-                false
-              );
-            }
-          } else {
-            logger.debug(
-              `Token retrieved as undefined for student ${essay.studentID}, ${token}`
+        const token = await getToken(activity, essay.studentID);
+        if (token) {
+          const bearerToken = `Bearer ${token}`;
+          let essayId;
+          // If the essay was not created before for that student, it's created.
+          if (!essay.essayID) {
+            essayId = await createEssay(
+              activity,
+              prompt,
+              essay.studentID,
+              ENDPOINT,
+              bearerToken
             );
-            // Save observations for the essay that couldn't be matched because there's no active student user.
+          } else {
+            essayId = essay.essayID;
+          }
+
+          if (essayId) {
+            // Calls faculty, submits the essay again and update the log.
+            await saveEssayText(
+              essayId,
+              essay.essayFromTextract,
+              ENDPOINT,
+              bearerToken
+            );
+            await submitEssay(essayId, ENDPOINT, bearerToken);
             await updateStudentHandwritingLog(
               ddbClient,
               essay.id,
-              "It was not created the essay for the student, please contact support.",
+              "Essay submitted.",
+              true,
+              essayId
+            );
+          } else {
+            logger.info(
+              `It was not created the essay for the student ${essay.studentID}, please contact support. \n`
+            );
+            await updateStudentHandwritingLog(
+              ddbClient,
+              essay.id,
+              "It was not created the essay for the student, please contact support. \n",
               false
             );
           }
+        } else {
+          logger.debug(
+            `Token retrieved as undefined for student ${essay.studentID}, ${token}`
+          );
+          // Save observations for the essay that couldn't be matched because there's no active student user.
+          await updateStudentHandwritingLog(
+            ddbClient,
+            essay.id,
+            "It was not created the essay for the student, please contact support.",
+            false
+          );
         }
       }
       logger.debug(`Process finish for student: ${essay.studentID}   \n`);
+    }
+
+    for (let i = 0; i < removedStudents?.length; i++) {
+      const removedStudent = removedStudents[i];
+      if (removedStudent.studentID && removedStudent.essayID) {
+        const token = await getToken(activity, removedStudent.studentID);
+        if (token) {
+          const bearerToken = `Bearer ${token}`;
+          await deleteEssay(removedStudent.essayID, ENDPOINT, bearerToken);
+        }
+      }
     }
   } else {
     logger.info("No essays were found, please contact the support team. \n");
@@ -618,6 +671,7 @@ const getPrompt = async (ddbClient, promptID) => {
 
 // This method finds the current user for the current year for each student.
 const getCurrentStudentUser = (schoolStudents) => {
+  console.log(schoolStudents);
   if (
     schoolStudents &&
     schoolStudents.length > 0 &&
@@ -796,6 +850,27 @@ const updateStudentHandwritingLog = async (
   }
 };
 
+// It deletes the essay for the student.
+const deleteEssay = async (essayId, ENDPOINT, bearerToken) => {
+  const url = `${ENDPOINT}essay/${essayId}`;
+  try {
+    const result = await axios.delete(url, {
+      headers: {
+        "Content-Type": "application/json;charset=UTF-8",
+        authorization: bearerToken,
+      },
+    });
+    console.log("result here------------->", result);
+    console.log(result?.data);
+  } catch (error) {
+    console.log(error);
+    const { message: errorMessage } = errorHandler(error);
+    logger.debug(
+      `There was an error while trying to delete the essay: ${errorMessage}`
+    );
+  }
+};
+
 // It save the text of the essay.
 const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
   const url = `${ENDPOINT}essay/${essayId}`;
@@ -807,8 +882,8 @@ const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
         authorization: bearerToken,
       },
     });
-    console.log("save esssay text", result, text);
     logger.debug(`essayId, ${result?.data?.essayId}`);
+    console.log(result?.data);
     return result?.data?.essayId;
   } catch (error) {
     const { message: errorMessage } = errorHandler(error);
@@ -828,8 +903,8 @@ const submitEssay = async (essayId, ENDPOINT, bearerToken) => {
         authorization: bearerToken,
       },
     });
-    console.log("result", result);
     logger.debug(`essayId, ${result?.data?.essayId}`);
+    console.log(result?.data);
     return result?.data?.essayId;
   } catch (error) {
     const { message: errorMessage } = errorHandler(error);

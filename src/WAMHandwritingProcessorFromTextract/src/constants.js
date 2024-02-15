@@ -7,6 +7,8 @@ const expiryDaysForNotification = 5;
 const fuzzyMatchingLambdaName = "fuzzyNameMatching"
 const matchStudentByNameWithStrictEqualityMethod = "matchStudentByNameWithStrictEquality"
 const matchStudentByNameUsingIndexesMethod = "matchStudentByNameUsingIndexes"
+// Every transaction sent to textract will be paused for 3 secs until the next one is sent.
+const TEXTRACT_WAIT_TO_AVOID_REACHING_LIMIT = 3000;
 
 module.exports = {
   sysType,
@@ -16,5 +18,6 @@ module.exports = {
   notificationMessage,
   fuzzyMatchingLambdaName,
   matchStudentByNameWithStrictEqualityMethod,
-  matchStudentByNameUsingIndexesMethod
+  matchStudentByNameUsingIndexesMethod,
+  TEXTRACT_WAIT_TO_AVOID_REACHING_LIMIT
 };

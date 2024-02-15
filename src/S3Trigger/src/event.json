@@ -1,0 +1,38 @@
+{
+  "Records": [
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "ap-southeast-2",
+      "eventTime": "2023-10-05T05:00:59.505Z",
+      "eventName": "ObjectCreated:CompleteMultipartUpload",
+      "userIdentity": {
+        "principalId": "AWS:AROA6IFJYEXCBF7IVZJPE:mike@bestperformance.com.au"
+      },
+      "requestParameters": {
+        "sourceIPAddress": "3.27.15.79"
+      },
+      "responseElements": {
+        "x-amz-request-id": "8VFN0N8E8JQ68D9G",
+        "x-amz-id-2": "ltGbw6hLF6+EyOYveA8RQwUHTFSauaZ4P38+1e82BGMrNvTWEv+2M95K9XAAouzTLMX2FE7qXNe94Qsw++0ZbUs5AFr8yiXr"
+      },
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "0fef2ba2-312b-4690-a69c-9c9b313db9c0",
+        "bucket": {
+          "name": "bpedsysuserstorage174413-develop",
+          "ownerIdentity": {
+            "principalId": "A3KZFL6PYN41WV"
+          },
+          "arn": "arn:aws:s3:::bpedsysuserstorage174413-develop"
+        },
+        "object": {
+          "key": "public/handwriting/f494d6e0-c6ef-48b6-adee-c0d4bda23bfe/6472cfb7-576e-45c9-8811-901a38384ec0/6472cfb7-576e-45c9-8811-901a38384ec0.pdf",
+          "size": 24056332,
+          "eTag": "de5216248921b91654a7c712d239ded9-3",
+          "sequencer": "00651E430B35006763"
+        }
+      }
+    }
+  ]
+}

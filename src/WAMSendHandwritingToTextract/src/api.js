@@ -14,11 +14,11 @@ const getActivityHandwritingLogs = async (ddbClient, activityID) => {
   };
   try {
     const queryResult = await ddbClient.query(params).promise();
-    if (queryResult && queryResult.Items && queryResult.Items.length > 0) {
+    if ( queryResult?.Items && queryResult.Items.length > 0) {
       return queryResult.Items;
     } else {
       logger.debug(
-        `There are not handwriting Logs available for the activityID\n`
+        "There are not handwriting Logs available for the activityID\n"
       );
       return null;
     }

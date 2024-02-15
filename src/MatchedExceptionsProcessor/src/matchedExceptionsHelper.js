@@ -17,30 +17,33 @@ const processMatchedExceptions = async (
     // save final PDFs for those students that were updated as exceptions in the UI by the teacher.
     const fileUrlsPerStudent = await createFinalPDFsForStudents(
       payload.activityID,
-      payload.updatedStudentItemsWithPages?.filter(
-        (studentData) => studentData.hasPendingModifications
-      ),
+      payload.updatedStudentItemsWithPages,
       s3Client
     );
 
-      console.log(fileUrlsPerStudent);
-
     // Save the new logs in the DB and update the previous ones status.
-    const studentHandwritingLogs =
-      await UpdateAndCreateLogsForActivityAfterMatching(
-        payload.handwritingLog,
-        ddbClient,
-        payload.activityID,
-        payload.updatedStudentItemsWithPages,
-        fileUrlsPerStudent
-      );
+    const {
+      studentHandwritingLogs,
+      removedStudents,
+      archivedMatchedStudentIDs,
+    } = await UpdateAndCreateLogsForActivityAfterMatching(
+      payload.handwritingLog,
+      ddbClient,
+      payload.activityID,
+      payload.updatedStudentItemsWithPages,
+      fileUrlsPerStudent
+    );
+
+    console.log("removed students:",removedStudents);
 
     await submitFinalEssaysAfterMatching(
       ddbClient,
       payload.activityID,
       payload.promptID,
       ENDPOINT,
-      studentHandwritingLogs
+      studentHandwritingLogs,
+      removedStudents,
+      archivedMatchedStudentIDs
     );
 
     return {

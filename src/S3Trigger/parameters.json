@@ -1,0 +1,5 @@
+{
+  "ldLibraryPath": "/opt/lib64:/opt/lib",
+  "lambdaLayerName": "nodejs-sharp-libvips-pdf",
+  "lambdaLayerVersion": "2"
+}
