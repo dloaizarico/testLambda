@@ -166,7 +166,7 @@ const getTextFromPagesProcessed = (
   if (pagesFound && pagesFound.length > 0) {
     for (let index = 0; index < pagesFound.length; index++) {
       const page = pagesFound[index];
-      const pageText = pagesContentMapWithProperText.get(page.pageInDocument);
+      const pageText = pagesContentMapWithProperText.get(String(page.pageInDocument));
       pagesContentMap.push({
         page: page.studentPage,
         text: pageText,
@@ -305,7 +305,7 @@ const createEssayObjects = (pagesContentMap) => {
               DOB,
               text: cleanedEssayText,
               page: {
-                studentPage: Number(essayPage),
+                page: Number(essayPage),
                 pageInDocument: page,
                 text: cleanedEssayText,
               },
@@ -359,7 +359,7 @@ const createEssayObjects = (pagesContentMap) => {
         lastName: "unidentifiedLastName",
         DOB: "unidentifiedDOB",
         page: {
-          studentPage: page,
+          page,
           pageInDocument: page,
           text: textArray
         },

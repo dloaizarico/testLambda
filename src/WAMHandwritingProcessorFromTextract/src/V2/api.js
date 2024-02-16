@@ -674,10 +674,13 @@ const createLogRecord = async (
         let pagesContentMap;
         if (studentHandwritingLog.completed) {
           const pagesFound = studentsPageMapping.get(key);
+          console.log(pagesFound);
+          console.log(pagesContentMapWithProperText);
           pagesContentMap = getTextFromPagesProcessed(
             pagesContentMapWithProperText,
             pagesFound
           );
+          console.log(pagesContentMap);
         }
 
         logger.debug(`key: ${key}`);

@@ -293,7 +293,7 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
 
         const newEssayText = studentData.attributedPages.reduce(
           (prev, page, index) => {
-            return prev + "\n" + page.extractedText;
+            return prev + "\n" + (page.extractedText);
           },
           ""
         );

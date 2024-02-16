@@ -21,6 +21,8 @@ const processMatchedExceptions = async (
       s3Client
     );
 
+    
+
     // Save the new logs in the DB and update the previous ones status.
     const {
       studentHandwritingLogs,
@@ -33,6 +35,11 @@ const processMatchedExceptions = async (
       payload.updatedStudentItemsWithPages,
       fileUrlsPerStudent
     );
+
+    console.log(studentHandwritingLogs);
+
+    return
+
 
     console.log("removed students:",removedStudents);
 

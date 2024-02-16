@@ -121,6 +121,8 @@ const handlerV2 = async (event, job) => {
     numberOfPagesDetectedInTheDoc
   );
 
+  console.log(studentsHandWritingLog);
+
   await createLogRecord(
     ddbClient,
     logObject,
