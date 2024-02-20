@@ -114,6 +114,9 @@ const processEssays = async (
           !processedStudentIDs.includes(studentID) &&
           activityClassroomStudentsIDs.includes(studentID)
         ) {
+
+          console.log("here 4");
+
           studentHandWritingLog.studentID = studentID;
           const schoolStudentQueryInput = {
             schoolID: activity?.schoolID,
@@ -133,6 +136,7 @@ const processEssays = async (
           if (schoolStudentEmail && schoolStudentEmail !== "") {
             const token = await getTokenForAuthentication(schoolStudentEmail);
             if (token) {
+              console.log("here 5");
               const bearerToken = `Bearer ${token}`;
               studentsPageMapping.set(studentID, essay.pages);
               const essayId = await createEssay(
@@ -166,6 +170,7 @@ const processEssays = async (
               );
               studentHandWritingLog.completed = false;
             }
+            studentsHandWritingLog.push(studentHandWritingLog);
           } else {
             logger.info(
               `The student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} does not have an active user in the school, please contact support to get a valid login. \n`
@@ -178,7 +183,7 @@ const processEssays = async (
 
             studentHandWritingLog.completed = false;
           }
-          studentsHandWritingLog.push(studentHandWritingLog);
+          
         } else {
           // If the essay was identified but the student is not part of the classroom, these pages are classified as unidentified. Therefore, we need to create separate logs for each page.
           if (Array.isArray(essay.pages)) {

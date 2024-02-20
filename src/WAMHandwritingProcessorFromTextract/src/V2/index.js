@@ -88,6 +88,8 @@ const handlerV2 = async (event, job) => {
 
       console.log("essayObjects",essayObjects[0].pages);
 
+      
+
       const result = await processEssays(
         essayObjects,
         activity,
@@ -104,6 +106,8 @@ const handlerV2 = async (event, job) => {
       
     }
   }
+
+  return
   
   const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
     new Date()
