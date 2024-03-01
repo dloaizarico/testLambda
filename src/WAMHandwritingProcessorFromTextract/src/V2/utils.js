@@ -156,27 +156,6 @@ const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
   }
 };
 
-// This method receives the pages that belong to a student, it then fetch the proper text for each page in a map.
-// This is later used for processing exception and resubmitting essays.
-const getTextFromPagesProcessed = (
-  pagesContentMapWithProperText,
-  pagesFound
-) => {
-  const pagesContentMap = [];
-  if (pagesFound && pagesFound.length > 0) {
-    for (let index = 0; index < pagesFound.length; index++) {
-      const page = pagesFound[index];
-      const pageText = pagesContentMapWithProperText.get(String(page.pageInDocument));
-      pagesContentMap.push({
-        page: page.studentPage,
-        text: pageText,
-        pageInDocument: page.pageInDocument,
-      });
-    }
-  }
-  return pagesContentMap;
-};
-
 // It maps the textract result to a JSON object.
 // lines are per essay and this is the return object from textract.
 const createEssayObjects = (pagesContentMap) => {
@@ -361,7 +340,7 @@ const createEssayObjects = (pagesContentMap) => {
         page: {
           page,
           pageInDocument: page,
-          text: textArray
+          text: textArray,
         },
         key: `unidentified${page}`,
         unidentified: true,
@@ -615,7 +594,7 @@ const splitFilePerStudent = async (
         if (!Array.isArray(pages)) {
           pagesArray = [pages];
         }
-        const sortedPages = _.sortBy(pagesArray, "studentPage", "ASC");
+        const sortedPages = _.sortBy(pagesArray, "page", "ASC");
 
         // It creates the inidividual essay document.
         const individualEssay = await PDFDocument.create();
@@ -664,12 +643,9 @@ const groupEssayPagesByStudent = (processedPages) => {
   // get pages that followed the proper template name, dob, page.
   const identifiedPages = processedPages.filter((page) => !page.unidentified);
   // sort identified pages by these attributes so it's easy to combine them by student.
-
-  console.log(identifiedPages);
-
   const sortedIdentifiedPages = _.sortBy(
     identifiedPages,
-    ["firstName", "lastName", "DOB", "page.studentPage"],
+    ["firstName", "lastName", "DOB", "page.page"],
     ["ASC", "ASC", "ASC", "ASC"]
   );
 
@@ -755,6 +731,5 @@ module.exports = {
   getTokenForAuthentication,
   getCurrentStudentUser,
   groupEssayPagesByStudent,
-  getTextFromPagesProcessed,
   sleep,
 };

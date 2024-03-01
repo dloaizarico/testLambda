@@ -4,6 +4,8 @@ const {
   createFinalPDFsForStudents,
   UpdateAndCreateLogsForActivityAfterMatching,
   submitFinalEssaysAfterMatching,
+  getPrompt,
+  getActivity,
 } = require("./api");
 const { logger } = require("./logger");
 
@@ -11,7 +13,9 @@ const processMatchedExceptions = async (
   ddbClient,
   payload,
   s3Client,
-  ENDPOINT
+  ENDPOINT,
+  prompt,
+  activity
 ) => {
   try {
     // save final PDFs for those students that were updated as exceptions in the UI by the teacher.
@@ -20,6 +24,8 @@ const processMatchedExceptions = async (
       payload.updatedStudentItemsWithPages,
       s3Client
     );
+
+    console.log("fileUrlsPerStudent",fileUrlsPerStudent);
 
     
 
@@ -36,17 +42,13 @@ const processMatchedExceptions = async (
       fileUrlsPerStudent
     );
 
-    console.log(studentHandwritingLogs);
+    console.log("removedStudents",removedStudents);
 
-    return
-
-
-    console.log("removed students:",removedStudents);
-
+  
     await submitFinalEssaysAfterMatching(
       ddbClient,
-      payload.activityID,
-      payload.promptID,
+      activity,
+      prompt,
       ENDPOINT,
       studentHandwritingLogs,
       removedStudents,

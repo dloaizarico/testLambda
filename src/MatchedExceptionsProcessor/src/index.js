@@ -1,5 +1,3 @@
-const path = require("path");
-require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
 const { logger } = require("./logger");
@@ -7,6 +5,8 @@ const {
   getSystemParameterByKey,
   getQueuePayloadByID,
   updateQueuePayloadToRead,
+  getPrompt,
+  getActivity,
 } = require("./api");
 const { request } = require("./appSyncRequest");
 const { S3Client } = require("@aws-sdk/client-s3");
@@ -50,8 +50,6 @@ const handler = async (event) => {
         "REACT_APP_EMT_API_BASE_URL"
       );
 
-      let notificationMessage = "The matching has been finished successfully.";
-
       const ENDPOINT = systemParam?.paramData;
       // Loading payload from dynamo.
       const payloadRecord = await getQueuePayloadByID(
@@ -68,13 +66,24 @@ const handler = async (event) => {
         notificationMessage =
           "There was an error and the matching didn't finish, please contact support.";
       } else {
+        const prompt = await getPrompt(
+          ddbClient,
+          payloadRecord?.payload?.promptID
+        );
+        const activity = await getActivity(
+          ddbClient,
+          payloadRecord?.payload?.activityID
+        );
+
         result = await processMatchedExceptions(
           ddbClient,
           payloadRecord.payload,
           s3Client,
-          ENDPOINT
+          ENDPOINT,
+          prompt,
+          activity
         );
-        await updateQueuePayloadToRead(ddbClient, message?.payloadID);
+        // await updateQueuePayloadToRead(ddbClient, message?.payloadID);
       }
 
       logger.debug(`Process is finished ${result}`);
@@ -85,7 +94,9 @@ const handler = async (event) => {
         read,
         readDate: "",
         type: "Matched exceptions",
-        message: notificationMessage,
+        message: `The matching has been finished successfully for ${
+          prompt?.promptName
+        } created on ${new Date(activity?.createdAt).toLocaleDateString()}.`,
         recipient: message.userEmail,
         sender,
         expiryTime,

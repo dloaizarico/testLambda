@@ -15,6 +15,7 @@ const {
   createLogRecord,
   createUserNotification,
   getStudentsInAClassroomAPI,
+  getHandwritingLogsForActivity,
 } = require("./api");
 
 const {
@@ -66,6 +67,8 @@ const handlerV2 = async (event, job) => {
   if (activity) {
     logObject.activityID = activity.id;
     logObject.schoolID = activity.schoolID;
+
+    const { allHandwritingLogs, studentHWLogsPerStudentMap } = await getHandwritingLogsForActivity(ddbClient, activity.id);
     const prompt = await getPrompt(ddbClient, activity.promptID);
     logger.debug("finish getting prompt");
     if (prompt) {
@@ -74,41 +77,29 @@ const handlerV2 = async (event, job) => {
         numberOfPagesDetected,
         pagesContentMapWithProperText,
       } = await processTextactResult(textractClient, job.jobID);
-      console.log(activity.id);
-      
       logger.debug("finish textract");
       pagesContentMapProperText = pagesContentMapWithProperText;
       const essayObjects = groupEssayPagesByStudent(processedPages);
-      
       numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
       logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
       const activityClassroomStudents = await getStudentsInAClassroomAPI(
         activity.classroomID
       );
-
-      console.log("essayObjects",essayObjects[0].pages);
-
-      
-
       const result = await processEssays(
         essayObjects,
         activity,
         prompt,
         ENDPOINT,
         activityClassroomStudents,
-        lambdaService
+        lambdaService,
+        studentHWLogsPerStudentMap,
+        ddbClient
       );
-
-      
       studentsPageMapping = result.studentsPageMapping;
-      
       studentsHandWritingLog = result.studentsHandWritingLog;
-      
     }
   }
-
-  return
-  
+  // return
   const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
     new Date()
   )}-${uuidv4()}-UploadsLog.txt`;
@@ -124,8 +115,6 @@ const handlerV2 = async (event, job) => {
     studentsPageMapping,
     numberOfPagesDetectedInTheDoc
   );
-
-  console.log(studentsHandWritingLog);
 
   await createLogRecord(
     ddbClient,

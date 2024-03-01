@@ -23,6 +23,7 @@ const PROMPT_TABLE_NAME = "Prompt";
 const HANDWRITINGLOG_TABLE_NAME = "HandwritingLog";
 const STUDENTS_HANDWRITINGLOG_TABLE_NAME = "StudentHandwritingLog";
 const QUEUE_PAYLOAD_TABLE_NAME = "QueuePayload";
+const MATCHED_RECORD_STATUS = "MATCHED";
 
 /**
  * It fetches the payload stored in dynamo to process.
@@ -120,35 +121,37 @@ const createFinalPDFsForStudents = async (
   for (let index = 0; index < updatedStudentItemsWithPages.length; index++) {
     const studentData = updatedStudentItemsWithPages[index];
     const attributedPages = studentData.attributedPages;
-    // get the pdfURLs involved for this student essay after the teacher match exceptions.
-    const filesToDownload = attributedPages.map((page) => page.pdfUrl);
-    // Download the files from s3, this is done at this point to avoid downloading the same file multiple times as it will download only the unique URLs from the array.
-    const pdfContentPerURL = await downloadOriginalPDFFilesFromS3(
-      [...new Set(filesToDownload)],
-      s3Client
-    );
-    // It creates the final PDF for this student.
-    const finalPDF = await PDFDocument.create();
-    for (let index = 0; index < attributedPages.length; index++) {
-      // get the page information from the array of pages of the student.
-      const page = attributedPages[index];
-      // get the pdf content from the map previously created.
-      const pdfContent = pdfContentPerURL.get(page.pdfUrl);
-      // pdf loaded to get the page that needs to be copied.
-      let pdf = await PDFDocument.load(pdfContent);
-      // It copies the page from the original file and adds it to the final pdf.
-      const [copiedPage] = await finalPDF.copyPages(pdf, [
-        page.pdfPageNumber - 1,
-      ]);
-      finalPDF.addPage(copiedPage);
+    if (attributedPages && attributedPages?.length > 0) {
+      // get the pdfURLs involved for this student essay after the teacher match exceptions.
+      const filesToDownload = attributedPages.map((page) => page.pdfUrl);
+      // Download the files from s3, this is done at this point to avoid downloading the same file multiple times as it will download only the unique URLs from the array.
+      const pdfContentPerURL = await downloadOriginalPDFFilesFromS3(
+        [...new Set(filesToDownload)],
+        s3Client
+      );
+      // It creates the final PDF for this student.
+      const finalPDF = await PDFDocument.create();
+      for (let index = 0; index < attributedPages.length; index++) {
+        // get the page information from the array of pages of the student.
+        const page = attributedPages[index];
+        // get the pdf content from the map previously created.
+        const pdfContent = pdfContentPerURL.get(page.pdfUrl);
+        // pdf loaded to get the page that needs to be copied.
+        let pdf = await PDFDocument.load(pdfContent);
+        // It copies the page from the original file and adds it to the final pdf.
+        const [copiedPage] = await finalPDF.copyPages(pdf, [
+          page.pdfPageNumber - 1,
+        ]);
+        finalPDF.addPage(copiedPage);
+      }
+      const id = uuidv4();
+      // Save the PDF object to get the bytes.
+      const finalPDFBytes = await finalPDF.save();
+      const s3FileKey = `handwriting/${activityID}/${studentData.student.id}/${studentData.student.id}-${id}.pdf`;
+      fileUrlsPerStudent.set(studentData.student.id, s3FileKey);
+      // upload the final pdf to S3.
+      await createFileInBucket(s3Client, `public/${s3FileKey}`, finalPDFBytes);
     }
-    const id = uuidv4();
-    // Save the PDF object to get the bytes.
-    const finalPDFBytes = await finalPDF.save();
-    const s3FileKey = `handwriting/${activityID}/${studentData.student.id}/${studentData.student.id}-${id}.pdf`;
-    fileUrlsPerStudent.set(studentData.student.id, s3FileKey);
-    // upload the final pdf to S3.
-    await createFileInBucket(s3Client, `public/${s3FileKey}`, finalPDFBytes);
   }
   return fileUrlsPerStudent;
 };
@@ -210,6 +213,8 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
   const { handwritingLogs, studentHandwritingLogs } =
     await getCurrentLogsByActivity(ddbClient, activityID);
 
+  console.log(handwritingLogs, studentHandwritingLogs);
+
   // Archiving handwriting logs.
   for (let index = 0; index < handwritingLogs.length; index++) {
     const handwritingLog = handwritingLogs[index];
@@ -230,9 +235,12 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
     );
   }
 
-  const currentMatchedStudentIDs = updatedStudentItemsWithPages.map(
-    (studentData) => studentData?.student.id
-  );
+  const currentMatchedStudentIDs = updatedStudentItemsWithPages
+    .filter(
+      (studentData) =>
+        studentData.attributedPages && studentData.attributedPages?.length > 0
+    )
+    .map((studentData) => studentData?.student.id);
 
   const archivedMatchedStudentIDs = studentHandwritingLogs.map(
     (studentHandwritingLog) => studentHandwritingLog
@@ -283,55 +291,66 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
         index++
       ) {
         const studentData = updatedStudentItemsWithPages[index];
-        logger.debug(`studentData object info: ${JSON.stringify(studentData)}`);
+        if (
+          studentData.attributedPages &&
+          studentData.attributedPages.length > 0
+        ) {
+          logger.debug(
+            `studentData object info: ${JSON.stringify(studentData)}`
+          );
 
-        let s3UrlFile = fileUrlsPerStudent.get(studentData.student.id);
+          let s3UrlFile = fileUrlsPerStudent.get(studentData.student.id);
 
-        if (!s3UrlFile || s3UrlFile === "") {
-          s3UrlFile = studentData.attributedPages[0]?.splitFileS3URL;
+          if (!s3UrlFile || s3UrlFile === "") {
+            s3UrlFile = studentData.attributedPages[0]?.splitFileS3URL;
+          }
+
+          const newEssayText = studentData.attributedPages.reduce(
+            (prev, page, index) => {
+              return prev + "\n" + page.extractedText;
+            },
+            ""
+          );
+
+          // get student name from the student record, fall back to whatever textract gave us
+          const studentName = studentData.student?.firstName
+            ? `${studentData.student.firstName} ${studentData.student?.lastName}`
+            : undefined;
+
+          createdAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+          updatedAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
+          const studentHandwritingLogInput = {
+            id: uuidv4(),
+            uploadID: input.id,
+            createdAt,
+            updatedAt,
+            __typename: STUDENTS_HANDWRITINGLOG_TABLE_NAME,
+            essayFromTextract: newEssayText,
+            studentNameFromTextract: studentName,
+            dobFromTextract: studentData.student?.birthDate,
+            splitFileS3URL: s3UrlFile,
+            completed: true,
+            studentID: studentData?.student.id,
+            recordState: "MATCHED",
+            essayID: studentData.essayID,
+          };
+
+          logger.debug(
+            `studentHandwritingLog object info: ${JSON.stringify(
+              studentHandwritingLogInput
+            )}`
+          );
+          const params = {
+            TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+            Item: studentHandwritingLogInput,
+          };
+          await ddbClient.put(params).promise();
+          studentHandwritingLogs.push(studentHandwritingLogInput);
+        } else {
+          logger.debug(
+            `The student has not pages after the matching was done. ${studentData?.student?.firstName} ${studentData?.student?.lastName}`
+          );
         }
-
-        const newEssayText = studentData.attributedPages.reduce(
-          (prev, page, index) => {
-            return prev + "\n" + (page.extractedText);
-          },
-          ""
-        );
-
-        // get student name from the student record, fall back to whatever textract gave us
-        const studentName = studentData.student?.firstName
-          ? `${studentData.student.firstName} ${studentData.student?.lastName}`
-          : undefined;
-
-        createdAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
-        updatedAt = `${dayjs(new Date()).format("YYYY-MM-DDTHH:mm:ss.SSS")}Z`;
-        const studentHandwritingLogInput = {
-          id: uuidv4(),
-          uploadID: input.id,
-          createdAt,
-          updatedAt,
-          __typename: STUDENTS_HANDWRITINGLOG_TABLE_NAME,
-          essayFromTextract: newEssayText,
-          studentNameFromTextract: studentName,
-          dobFromTextract: studentData.student?.birthDate,
-          splitFileS3URL: s3UrlFile,
-          completed: true,
-          studentID: studentData?.student.id,
-          recordState: "MATCHED",
-          essayID: studentData.essayID,
-        };
-
-        logger.debug(
-          `studentHandwritingLog object info: ${JSON.stringify(
-            studentHandwritingLogInput
-          )}`
-        );
-        const params = {
-          TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
-          Item: studentHandwritingLogInput,
-        };
-        await ddbClient.put(params).promise();
-        studentHandwritingLogs.push(studentHandwritingLogInput);
       }
       return {
         studentHandwritingLogs,
@@ -385,6 +404,10 @@ const getCurrentLogsByActivity = async (ddbClient, activityID) => {
       params.ExclusiveStartKey = queryResult.LastEvaluatedKey;
     } while (typeof params.ExclusiveStartKey !== "undefined");
 
+    handwritingLogs = handwritingLogs?.filter(
+      (HWLog) => HWLog.recordState !== MATCHED_RECORD_STATUS
+    );
+
     for (let index = 0; index < handwritingLogs.length; index++) {
       const handwritingLog = handwritingLogs[index];
       const data = await getStudentHandwritingLogsByLogParentID(
@@ -427,7 +450,9 @@ const getStudentHandwritingLogsByLogParentID = async (
 
       params.ExclusiveStartKey = queryResult.LastEvaluatedKey;
     } while (typeof params.ExclusiveStartKey !== "undefined");
-    return studentHandwritingLogs;
+    return studentHandwritingLogs?.filter(
+      (sHWL) => sHWL.recordState !== MATCHED_RECORD_STATUS
+    );
   } catch (error) {
     logger.error(
       `error while fetching the studentHandwritingLogs logs ${JSON.stringify(
@@ -473,16 +498,13 @@ const getToken = async (activity, studentID) => {
  */
 const submitFinalEssaysAfterMatching = async (
   ddbClient,
-  activityID,
-  promptID,
+  activity,
+  prompt,
   ENDPOINT,
   essays,
   removedStudents,
   archivedMatchedStudentIDs
 ) => {
-  const activity = await getActivity(ddbClient, activityID);
-  const prompt = await getPrompt(ddbClient, promptID);
-
   logger.debug(
     `Essay process started: ${new Date().toLocaleDateString()}-${new Date().toTimeString()}  \n`
   );
@@ -494,9 +516,7 @@ const submitFinalEssaysAfterMatching = async (
       const essay = essays[i];
       logger.debug("studentHandwritingLogID", essay.id);
 
-      logger.debug(
-        `Processing student: ${essay.studentID} , name:${essay.studentNameFromTextract} \n`
-      );
+      logger.debug(`Processing student: ${essay.studentID} \n`);
       // Validate essay object, first name, last name and DOB are correct plus the text is a proper one.
       const didEssayPassValidations = validateEssay(essay);
 
@@ -565,6 +585,7 @@ const submitFinalEssaysAfterMatching = async (
       logger.debug(`Process finish for student: ${essay.studentID}   \n`);
     }
 
+    // resetting essay for students that were removed after matching.
     for (let i = 0; i < removedStudents?.length; i++) {
       const removedStudent = removedStudents[i];
       if (removedStudent.studentID && removedStudent.essayID) {
@@ -671,7 +692,6 @@ const getPrompt = async (ddbClient, promptID) => {
 
 // This method finds the current user for the current year for each student.
 const getCurrentStudentUser = (schoolStudents) => {
-  console.log(schoolStudents);
   if (
     schoolStudents &&
     schoolStudents.length > 0 &&
@@ -860,10 +880,7 @@ const deleteEssay = async (essayId, ENDPOINT, bearerToken) => {
         authorization: bearerToken,
       },
     });
-    console.log("result here------------->", result);
-    console.log(result?.data);
   } catch (error) {
-    console.log(error);
     const { message: errorMessage } = errorHandler(error);
     logger.debug(
       `There was an error while trying to delete the essay: ${errorMessage}`
@@ -883,7 +900,6 @@ const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
       },
     });
     logger.debug(`essayId, ${result?.data?.essayId}`);
-    console.log(result?.data);
     return result?.data?.essayId;
   } catch (error) {
     const { message: errorMessage } = errorHandler(error);
@@ -904,7 +920,6 @@ const submitEssay = async (essayId, ENDPOINT, bearerToken) => {
       },
     });
     logger.debug(`essayId, ${result?.data?.essayId}`);
-    console.log(result?.data);
     return result?.data?.essayId;
   } catch (error) {
     const { message: errorMessage } = errorHandler(error);

@@ -17,13 +17,14 @@ const {
   getTokenForAuthentication,
   getCurrentStudentUser,
   createEssayObjects,
-  getTextFromPagesProcessed,
   sleep,
 } = require("./utils");
 const { request } = require("../appSyncRequest");
 const { createNotification } = require("../graphql/bpmutations");
 const ACTIVITY_TABLE_NAME = "Activity";
 const PROMPT_TABLE_NAME = "Prompt";
+const STUDENT_HANDWRITING_LOG = "StudentHandwritingLog";
+const HANDWRITING_LOG = "HandwritingLog";
 
 const {
   sysType,
@@ -42,6 +43,7 @@ const {
  * @param prompt
  * @param ENDPOINT: faculty's API endpoint fetched as a param.
  * @param activityClassroomStudents list of students that are part of the classroom in which the activity was created, this is used for name matching.
+ * @param studentHWLogsPerStudentMap map with the handwriting logs per student.
  */
 const processEssays = async (
   essays,
@@ -49,7 +51,9 @@ const processEssays = async (
   prompt,
   ENDPOINT,
   activityClassroomStudents,
-  lambdaService
+  lambdaService,
+  studentHWLogsPerStudentMap,
+  ddbClient
 ) => {
   // Get unique student IDs within that classroom.
   const activityClassroomStudentsIDs = activityClassroomStudents?.map(
@@ -107,6 +111,17 @@ const processEssays = async (
             lambdaService
           );
         }
+
+        // If the student was found, it's required to validate that this student hasn't been processed before, if so, all logs should be deleted for that student.
+        if (studentID) {
+          const logs = studentHWLogsPerStudentMap.get(studentID);
+          if (logs && logs?.length > 0) {
+            // delete all previous logs in the platform, because there could be only one state of logs at the time for the same student.
+            await deleteHandwritingLogs(ddbClient, logs);
+            studentHWLogsPerStudentMap.set(studentID, []);
+          }
+        }
+
         // If the student has been found and the essay passed the validations and the student does not have an essay already created, it then creates the essay.
         if (
           studentID &&
@@ -114,9 +129,6 @@ const processEssays = async (
           !processedStudentIDs.includes(studentID) &&
           activityClassroomStudentsIDs.includes(studentID)
         ) {
-
-          console.log("here 4");
-
           studentHandWritingLog.studentID = studentID;
           const schoolStudentQueryInput = {
             schoolID: activity?.schoolID,
@@ -136,7 +148,6 @@ const processEssays = async (
           if (schoolStudentEmail && schoolStudentEmail !== "") {
             const token = await getTokenForAuthentication(schoolStudentEmail);
             if (token) {
-              console.log("here 5");
               const bearerToken = `Bearer ${token}`;
               studentsPageMapping.set(studentID, essay.pages);
               const essayId = await createEssay(
@@ -159,18 +170,15 @@ const processEssays = async (
                 );
                 studentHandWritingLog.completed = false;
               }
+              studentsHandWritingLog.push(studentHandWritingLog);
             } else {
-              studentsPageMapping.set(essay.key, essay.pages);
-              studentHandWritingLog.studentID = essay.key;
               logger.info(
                 `It was not created the essay for the student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, please contact support. \n`
               );
               logger.debug(
                 `Token retrieved as undefined.${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}, ${token}`
               );
-              studentHandWritingLog.completed = false;
             }
-            studentsHandWritingLog.push(studentHandWritingLog);
           } else {
             logger.info(
               `The student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} does not have an active user in the school, please contact support to get a valid login. \n`
@@ -178,27 +186,20 @@ const processEssays = async (
             logger.debug(
               `username for student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB} is null`
             );
-            studentHandWritingLog.studentID = essay.key;
-            studentsPageMapping.set(essay.key, essay.pages);
-
-            studentHandWritingLog.completed = false;
           }
-          
         } else {
           // If the essay was identified but the student is not part of the classroom, these pages are classified as unidentified. Therefore, we need to create separate logs for each page.
           if (Array.isArray(essay.pages)) {
-            console.log();
             for (let index = 0; index < essay.pages.length; index++) {
-
-              let studentHandwritingLogRecord = {...studentHandWritingLog}
+              let studentHandwritingLogRecord = { ...studentHandWritingLog };
               const pageObject = essay.pages[index];
-              const newKey = `${essay.key}-page${pageObject?.studentPage}`;
+              const newKey = `${essay.key}-page${pageObject?.page}`;
               studentHandwritingLogRecord.studentID = newKey;
               studentHandwritingLogRecord.essayFromTextract = pageObject?.text;
               studentsPageMapping.set(newKey, pageObject);
 
               logger.info(
-                `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not identified properly, please match those exceptions. \n`
+                `Student ${essay.firstName}, ${essay.lastName}, -DOB ${essay.DOB}  was not found in the database, please check first name, last name and DOB in the original file \n`
               );
               logger.info(
                 `----------------------------------------------------------------- \n`
@@ -234,9 +235,6 @@ const processEssays = async (
   logger.debug(
     `Essays process is finished: ${new Date().toLocaleDateString()}   \n`
   );
-
-  console.log(studentsPageMapping);
-  console.log(studentsHandWritingLog);
   return {
     studentsPageMapping,
     studentsHandWritingLog,
@@ -678,14 +676,7 @@ const createLogRecord = async (
 
         let pagesContentMap;
         if (studentHandwritingLog.completed) {
-          const pagesFound = studentsPageMapping.get(key);
-          console.log(pagesFound);
-          console.log(pagesContentMapWithProperText);
-          pagesContentMap = getTextFromPagesProcessed(
-            pagesContentMapWithProperText,
-            pagesFound
-          );
-          console.log(pagesContentMap);
+          pagesContentMap = studentsPageMapping.get(key);
         }
 
         logger.debug(`key: ${key}`);
@@ -745,6 +736,154 @@ const createLogRecord = async (
     }
   }
 };
+
+/**
+ * This method finds all handwriting logs that are created for an activityID
+ * @param {*} ddbClient
+ * @param {*} activityID
+ * @returns
+ */
+const getHandwritingLogsForActivity = async (ddbClient, activityID) => {
+  const params = {
+    TableName: `${HANDWRITING_LOG}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+    IndexName: "byActivity",
+    KeyConditionExpression: "activityID = :activityID",
+    ExpressionAttributeValues: {
+      ":activityID": activityID,
+    },
+  };
+  const allHandwritingLogs = [];
+  // map with studentHanwriting logs per student.
+  const studentHWLogsPerStudentMap = new Map();
+  try {
+    const queryResult = await ddbClient.query(params).promise();
+    if (queryResult?.Items && queryResult.Items.length > 0) {
+      const handwritinglogs = queryResult.Items;
+      let studentHWLogs = [];
+
+      for (let index = 0; index < handwritinglogs.length; index++) {
+        const log = handwritinglogs[index];
+        const studentHandwritingLogs = await getStudentsHandwritingLog(
+          ddbClient,
+          log.id
+        );
+        studentHWLogs = [...studentHWLogs, ...studentHandwritingLogs];
+        allHandwritingLogs.push({ ...log, studentHandwritingLogs });
+      }
+
+      // Creating map of studentID => studentHandwritingLogs.
+      for (let index = 0; index < studentHWLogs.length; index++) {
+        const studentHWLog = studentHWLogs[index];
+        let logsPerStudent = studentHWLogsPerStudentMap.get(
+          studentHWLog.studentID
+        );
+        if (!logsPerStudent) {
+          logsPerStudent = [];
+        }
+        logsPerStudent.push(studentHWLog);
+        studentHWLogsPerStudentMap.set(studentHWLog.studentID, logsPerStudent);
+      }
+    } else {
+      logger.info(
+        "There are not Handwriting Logs available for the activityID\n"
+      );
+    }
+    return { allHandwritingLogs, studentHWLogsPerStudentMap };
+  } catch (error) {
+    logger.error(
+      `error while fetching the handwriting Logs available for the activityID ${JSON.stringify(
+        error
+      )}`
+    );
+    return { allHandwritingLogs, studentHWLogsPerStudentMap };
+  }
+};
+
+/**
+ * This method finds all handwriting logs and student handwriting logs for that activity, it's used to detect if a student has been uploaded
+ * previously and therefore, those logs need deletion.
+ * @param {*} ddbClient
+ * @param {*} uploadID
+ * @returns
+ */
+const getStudentsHandwritingLog = async (ddbClient, uploadID) => {
+  const params = {
+    TableName: `${STUDENT_HANDWRITING_LOG}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+    IndexName: "byLogParentID",
+    KeyConditionExpression: "uploadID = :uploadID",
+    ExpressionAttributeValues: {
+      ":uploadID": uploadID,
+    },
+  };
+  try {
+    const queryResult = await ddbClient.query(params).promise();
+    if (queryResult?.Items && queryResult.Items.length > 0) {
+      return queryResult.Items;
+    } else {
+      logger.info(
+        "There are not studentHandwriting Logs available for the uploadID\n"
+      );
+      return null;
+    }
+  } catch (error) {
+    logger.error(
+      `error while fetching the student handwriting logs ${JSON.stringify(
+        error
+      )}`
+    );
+    return null;
+  }
+};
+
+/**
+ * This method deletes the handwriting and studentHandwriting records received in the array.
+ */
+const deleteHandwritingLogs = async (ddbClient, studentHandwritingLogs) => {
+  const studentHandwritingLogIDs = studentHandwritingLogs.map((log) => log.id);
+  const handwritingLogIDs = studentHandwritingLogs.map((log) => log.uploadID);
+  for (let index = 0; index < studentHandwritingLogIDs.length; index++) {
+    const studentHandwritingLogID = studentHandwritingLogIDs[index];
+    await deleteRecord(
+      ddbClient,
+      studentHandwritingLogID,
+      STUDENT_HANDWRITING_LOG
+    );
+  }
+
+  for (let index = 0; index < handwritingLogIDs.length; index++) {
+    const handwritingLogID = handwritingLogIDs[index];
+    await deleteRecord(ddbClient, handwritingLogID, HANDWRITING_LOG);
+  }
+};
+
+const deleteRecord = async (ddbClient, id, tableName) => {
+  let params;
+  if (id) {
+    params = {
+      TableName: `${tableName}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPU}-${process.env.ENV}`,
+      Key: {
+        id,
+      },
+    };
+  } else {
+    console.log("No Id was provided to perform the delete");
+    return;
+  }
+
+  try {
+    await ddbClient.delete(params).promise();
+    return true;
+  } catch (error) {
+    console.log(error);
+    console.error(
+      `error while deleting the data with id: ${id} for table: ${tableName} ${JSON.stringify(
+        error
+      )}`
+    );
+    return false;
+  }
+};
+
 module.exports = {
   getStudentByNameLastNameAndDOB,
   getPrompt,
@@ -756,4 +895,5 @@ module.exports = {
   createLogRecord,
   createUserNotification,
   getStudentsInAClassroomAPI,
+  getHandwritingLogsForActivity,
 };

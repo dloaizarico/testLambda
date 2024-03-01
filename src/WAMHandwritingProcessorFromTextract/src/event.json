@@ -9,7 +9,7 @@
         "MessageId": "01e5bd8d-9040-5a00-92cf-e08c69cb2cd2",
         "TopicArn": "arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-develop",
         "Subject": null,
-        "Message": "{\"JobId\":\"e08522fd3a4a6e139c2350059435b38421a3eade99af5cc730a86f2f5425f2c3\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"4372088e-5fdf-4781-b36b-47be97d0e253_V2\",\"Timestamp\":1686632267529,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/5d2a992e-efcb-454c-8d45-359e498bf986/Dash bennet.pdf\",\"S3Bucket\":\"bpedsysuserstorage174413-develop\"}}",
+        "Message": "{\"JobId\":\"5c5b48477b5a2c4b5fce87df031d3ba62f703a3ea89a5c37ec2839e13460e4b6\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"1b3c5546-4d73-4821-ada3-02022d4d9823_V2\",\"Timestamp\":1686632267529,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/f086bcd5-4711-4eab-9d22-b9359785a06c/indie cooper-2 copy1.pdf\",\"S3Bucket\":\"bpedsysuserstorage174413-develop\"}}",
         "Timestamp": "2023-06-13T04:57:47.600Z",
         "SignatureVersion": "1",
         "Signature": "m79XXbjsdPYONzUErA55BEQzZOh/2t1EeyX+4E4CIU7dYXhQp7sFwijHmUXexjTHDBnf1vd292nNuEWKuCTxQGwmg4acgfBrKcjFPpXrUItVVVBpQLyruywTIHba84eCWwiocRyMALQDbAalIt0oZyi0TdAv6gEjhhXkBStUWUADlKh3/ddlgPiFUKGEcDzRuOdM9LjVnNrVrK4cFITeWuQyVvDKUB1fFhov5Go6qz/gnPhPJ0OHlcQPHcMp9KlJWb9pJrJupvqHr/X3XCR8tg7aP6zChjtVI+zF+Hj93AQelb3Vr2XY4+f8eCXAI4BLMnegW8Jv5XuIFmXPkTg4Mw==",
