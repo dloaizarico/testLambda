@@ -860,7 +860,7 @@ const deleteRecord = async (ddbClient, id, tableName) => {
   let params;
   if (id) {
     params = {
-      TableName: `${tableName}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPU}-${process.env.ENV}`,
+      TableName: `${tableName}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
       Key: {
         id,
       },
@@ -874,7 +874,6 @@ const deleteRecord = async (ddbClient, id, tableName) => {
     await ddbClient.delete(params).promise();
     return true;
   } catch (error) {
-    console.log(error);
     console.error(
       `error while deleting the data with id: ${id} for table: ${tableName} ${JSON.stringify(
         error

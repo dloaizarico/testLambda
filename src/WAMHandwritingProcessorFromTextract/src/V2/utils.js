@@ -156,6 +156,7 @@ const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
   }
 };
 
+
 // It maps the textract result to a JSON object.
 // lines are per essay and this is the return object from textract.
 const createEssayObjects = (pagesContentMap) => {
@@ -340,7 +341,7 @@ const createEssayObjects = (pagesContentMap) => {
         page: {
           page,
           pageInDocument: page,
-          text: textArray,
+          text: textArray
         },
         key: `unidentified${page}`,
         unidentified: true,

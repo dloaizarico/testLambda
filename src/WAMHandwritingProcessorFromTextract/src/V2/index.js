@@ -25,6 +25,7 @@ const {
 } = require("./utils");
 
 const { validateEvent } = require("../validations");
+
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
  */
