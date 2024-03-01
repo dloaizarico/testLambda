@@ -68,7 +68,7 @@ function getDate(dob) {
 // It takes a string and format it into Proper.
 function formatToProper(str) {
   return str.replace(/\w\S*/g, function (txt) {
-    return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+    return txt.charAt(0)?.toUpperCase() + txt.substr(1).toLowerCase();
   });
 }
 
@@ -136,21 +136,21 @@ const getFirstNameAndLastName = (fullName) => {
 
 const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
   if (type === "NAME") {
-    return string.toUpperCase().includes("NAME :")
+    return string?.toUpperCase().includes("NAME :")
       ? 6
-      : string.toUpperCase().includes("NAME:")
+      : string?.toUpperCase().includes("NAME:")
       ? 5
       : 4;
   } else if (type === "DOB") {
-    return string.toUpperCase().includes("DOB :")
+    return string?.toUpperCase().includes("DOB :")
       ? 5
-      : string.toUpperCase().includes("DOB:")
+      : string?.toUpperCase().includes("DOB:")
       ? 4
       : 3;
   } else if (type === "PAGE") {
-    return string.toUpperCase().includes("PAGE :")
+    return string?.toUpperCase().includes("PAGE :")
       ? 6
-      : string.toUpperCase().includes("PAGE:")
+      : string?.toUpperCase().includes("PAGE:")
       ? 5
       : 4;
   }

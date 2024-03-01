@@ -580,7 +580,7 @@ const processTextactResult = async (textractClient, jobId) => {
   }
 };
 
-const createUserNotification = async (logObject) => {
+const createUserNotification = async (logObject, message) => {
   try {
     // Getting the email of the user.
     const userInput = {
@@ -606,7 +606,9 @@ const createUserNotification = async (logObject) => {
       read,
       readDate: "",
       type: "Handwriting uploader",
-      message: `The file ${logObject.uploadedFileName} has been processed, please match any exceptions. `,
+      message: message
+        ? message
+        : `The file ${logObject.uploadedFileName} has been processed, please match any exceptions. `,
       recipient: email,
       sender,
       expiryTime,

@@ -63,74 +63,83 @@ const handlerV2 = async (event, job) => {
   logObject.fileUrl = job.fileURL;
   logObject.uploadUserID = job.userID;
   logObject.uploadedFileName = job.uploadedFileName;
-  const activity = await getActivity(ddbClient, job.activityID);
-  logger.debug("finish getting activity");
-  if (activity) {
-    logObject.activityID = activity.id;
-    logObject.schoolID = activity.schoolID;
+  try {
+    const activity = await getActivity(ddbClient, job.activityID);
+    logger.debug("finish getting activity");
+    if (activity) {
+      logObject.activityID = activity.id;
+      logObject.schoolID = activity.schoolID;
 
-    const { allHandwritingLogs, studentHWLogsPerStudentMap } = await getHandwritingLogsForActivity(ddbClient, activity.id);
-    const prompt = await getPrompt(ddbClient, activity.promptID);
-    logger.debug("finish getting prompt");
-    if (prompt) {
-      const {
-        processedPages,
-        numberOfPagesDetected,
-        pagesContentMapWithProperText,
-      } = await processTextactResult(textractClient, job.jobID);
-      logger.debug("finish textract");
-      pagesContentMapProperText = pagesContentMapWithProperText;
-      const essayObjects = groupEssayPagesByStudent(processedPages);
-      numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
-      logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
-      const activityClassroomStudents = await getStudentsInAClassroomAPI(
-        activity.classroomID
-      );
-      const result = await processEssays(
-        essayObjects,
-        activity,
-        prompt,
-        ENDPOINT,
-        activityClassroomStudents,
-        lambdaService,
-        studentHWLogsPerStudentMap,
-        ddbClient
-      );
-      studentsPageMapping = result.studentsPageMapping;
-      studentsHandWritingLog = result.studentsHandWritingLog;
+      const { allHandwritingLogs, studentHWLogsPerStudentMap } =
+        await getHandwritingLogsForActivity(ddbClient, activity.id);
+      const prompt = await getPrompt(ddbClient, activity.promptID);
+      logger.debug("finish getting prompt");
+      if (prompt) {
+        const {
+          processedPages,
+          numberOfPagesDetected,
+          pagesContentMapWithProperText,
+        } = await processTextactResult(textractClient, job.jobID);
+        logger.debug("finish textract");
+        pagesContentMapProperText = pagesContentMapWithProperText;
+        const essayObjects = groupEssayPagesByStudent(processedPages);
+        numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
+        logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
+        const activityClassroomStudents = await getStudentsInAClassroomAPI(
+          activity.classroomID
+        );
+        const result = await processEssays(
+          essayObjects,
+          activity,
+          prompt,
+          ENDPOINT,
+          activityClassroomStudents,
+          lambdaService,
+          studentHWLogsPerStudentMap,
+          ddbClient
+        );
+        studentsPageMapping = result.studentsPageMapping;
+        studentsHandWritingLog = result.studentsHandWritingLog;
+      }
     }
+    // return
+    const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
+      new Date()
+    )}-${uuidv4()}-UploadsLog.txt`;
+    const wasLogUploaded = await uploadInfoLogToS3(
+      s3Client,
+      `public/${generalLogFileKey}`
+    );
+    const studentsFileMap = await splitFilePerStudent(
+      s3Client,
+      logObject.fileUrl,
+      logObject.uploadedFileName,
+      activity.id,
+      studentsPageMapping,
+      numberOfPagesDetectedInTheDoc
+    );
+
+    await createLogRecord(
+      ddbClient,
+      logObject,
+      generalLogFileKey,
+      studentsHandWritingLog,
+      pagesContentMapProperText,
+      studentsPageMapping,
+      studentsFileMap,
+      logObject.fileUrl,
+      wasLogUploaded
+    );
+    await createUserNotification(logObject);
+
+    clearCurrentLog();
+  } catch (error) {
+    logger.error(`There was an error while processing the file: ${error} `);
+    await createUserNotification(
+      logObject,
+      `It is very likely that you are using the wrong template in the ${logObject.uploadedFileName} file uploaded to the handwriting module; please check it and upload it again.`
+    );
   }
-  // return
-  const generalLogFileKey = `handwriting/${activity.id}/${ParseDOB(
-    new Date()
-  )}-${uuidv4()}-UploadsLog.txt`;
-  const wasLogUploaded = await uploadInfoLogToS3(
-    s3Client,
-    `public/${generalLogFileKey}`
-  );
-  const studentsFileMap = await splitFilePerStudent(
-    s3Client,
-    logObject.fileUrl,
-    logObject.uploadedFileName,
-    activity.id,
-    studentsPageMapping,
-    numberOfPagesDetectedInTheDoc
-  );
-
-  await createLogRecord(
-    ddbClient,
-    logObject,
-    generalLogFileKey,
-    studentsHandWritingLog,
-    pagesContentMapProperText,
-    studentsPageMapping,
-    studentsFileMap,
-    logObject.fileUrl,
-    wasLogUploaded
-  );
-  await createUserNotification(logObject);
-
-  clearCurrentLog();
 };
 
 module.exports = {
