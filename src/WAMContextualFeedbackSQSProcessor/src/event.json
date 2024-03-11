@@ -1,0 +1,23 @@
+{
+  "Records": [
+    {
+      "messageId": "c14ac1a5-d3fd-415d-9ded-55c128f76ef0",
+      "receiptHandle": "AQEBErmW6bowws2aSMLIMMDMxivzG2gdefAnD8RLSaTExMD+49kRduyDBSAVONnAGInO44LLAY0LPpMxPubpIYgPpNGW8N46wjU1fMPKymVgNykBqpFeWaEGmSM1Ry1B0JG4kx9KwGaoZNUFe6guY9bAvojsSouJGuKa0NU/Sw0sjtMKKHv2tawuELwv0CiG0RKsIAR4UE+lEp3DEleo2y8EcHhE8HOMwOt5HoSoSRbzjMsJcjhc5lHrwNvlN26ho9+nvy+ULo2OvGljTI0f/d7Jder1dHZLv/xd63ViuSzaB+io5ScaU9dDh9s2iDjHUs97/eBKxCS4jWS02izaEaFqGudGWvzqfpFcmsb0ebE1e7uLzE5Xfi3g7p7miZx7MX932ZGAldk1MikrGEwxCTxq5J2bngS+HTInPCNkhLK3q7NP6Q9VpzP7PNxpIhAHMYyC",
+      "body": {
+        "msg": "This is a test from amplify mock",
+        "essayId": "a688e913-31fe-416b-b24c-d73d9d07efb2"
+      },
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1663343820920",
+        "SenderId": "AROA2JYJRJRIVJNR4GXIM:QualtricsEventWebhook-develop",
+        "ApproximateFirstReceiveTimestamp": "1663343830920"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "c3b4fc57d72558cd86da109839907b5a",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:ap-southeast-2:708152740945:qualtrics-survey-event-queue-develop",
+      "awsRegion": "ap-southeast-2"
+    }
+  ]
+}
