@@ -158,12 +158,17 @@ const processChatGpt = async (essayMarks, essay, prompt) => {
     { role: "user", content: faculty_mark.text },
   ];
 
-  const response = await _client.post(_openAIBaseURL, {
-    model: _openAIModel,
-    messages,
-    functions: [{ name: "set_feedback", parameters: chatGPTResponseSchema }],
-    function_call: { name: "set_feedback" },
-  });
+  try {
+    const response = await _client.post(_openAIBaseURL, {
+      model: _openAIModel,
+      messages,
+      functions: [{ name: "set_feedback", parameters: chatGPTResponseSchema }],
+      function_call: { name: "set_feedback" },
+    });
+    console.log(response);
+  } catch (error) {
+    console.log(error.response?.data?.error);
+  }
   const mapRubric = {};
 
   const formattedResponse =
