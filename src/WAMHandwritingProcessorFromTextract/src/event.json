@@ -9,7 +9,7 @@
         "MessageId": "01e5bd8d-9040-5a00-92cf-e08c69cb2cd2",
         "TopicArn": "arn:aws:sns:ap-southeast-2:990939205853:sns-topic-textractHandWriting-bpedsys-develop",
         "Subject": null,
-        "Message": "{\"JobId\":\"b3596e2665ddd36bbe5f8f5e3e8d81ea9c66416dd670f8c319dd61a22d8090fd\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"1b3c5546-4d73-4821-ada3-02022d4d9823_V2\",\"Timestamp\":1686632267529,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/8a39f597-8815-4da9-8ed4-1a2df2d115d0/223 - The Gate 2024 Term 1 Writing Moderation.pdf\",\"S3Bucket\":\"bpedsysuserstorage174413-develop\"}}",
+        "Message": "{\"JobId\":\"14a36743afb40ea4cc45654bfbb1226e956b67c82ee832ed6bc854f3ab0b418d\",\"Status\":\"SUCCEEDED\",\"API\":\"StartDocumentTextDetection\",\"JobTag\":\"1b3c5546-4d73-4821-ada3-02022d4d9823_V2\",\"Timestamp\":1686632267529,\"DocumentLocation\":{\"S3ObjectName\":\"public/handwriting/662b5f40-e0c5-4854-a7a3-2c5981cdd038/scan_rchan_2024-03-13-09-05-452.pdf\",\"S3Bucket\":\"bpedsysuserstorage174413-develop\"}}",
         "Timestamp": "2023-06-13T04:57:47.600Z",
         "SignatureVersion": "1",
         "Signature": "m79XXbjsdPYONzUErA55BEQzZOh/2t1EeyX+4E4CIU7dYXhQp7sFwijHmUXexjTHDBnf1vd292nNuEWKuCTxQGwmg4acgfBrKcjFPpXrUItVVVBpQLyruywTIHba84eCWwiocRyMALQDbAalIt0oZyi0TdAv6gEjhhXkBStUWUADlKh3/ddlgPiFUKGEcDzRuOdM9LjVnNrVrK4cFITeWuQyVvDKUB1fFhov5Go6qz/gnPhPJ0OHlcQPHcMp9KlJWb9pJrJupvqHr/X3XCR8tg7aP6zChjtVI+zF+Hj93AQelb3Vr2XY4+f8eCXAI4BLMnegW8Jv5XuIFmXPkTg4Mw==",

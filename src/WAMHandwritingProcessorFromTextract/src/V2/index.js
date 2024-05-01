@@ -75,31 +75,44 @@ const handlerV2 = async (event, job) => {
       const prompt = await getPrompt(ddbClient, activity.promptID);
       logger.debug("finish getting prompt");
       if (prompt) {
-        const {
-          processedPages,
-          numberOfPagesDetected,
-          pagesContentMapWithProperText,
-        } = await processTextactResult(textractClient, job.jobID);
-        logger.debug("finish textract");
-        pagesContentMapProperText = pagesContentMapWithProperText;
-        const essayObjects = groupEssayPagesByStudent(processedPages);
-        numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
-        logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
-        const activityClassroomStudents = await getStudentsInAClassroomAPI(
-          activity.classroomID
+        const textractResult = await processTextactResult(
+          textractClient,
+          job.jobID
         );
-        const result = await processEssays(
-          essayObjects,
-          activity,
-          prompt,
-          ENDPOINT,
-          activityClassroomStudents,
-          lambdaService,
-          studentHWLogsPerStudentMap,
-          ddbClient
-        );
-        studentsPageMapping = result.studentsPageMapping;
-        studentsHandWritingLog = result.studentsHandWritingLog;
+
+        const processedPages = textractResult?.processedPages;
+        const numberOfPagesDetected = textractResult?.processedPages;
+        const pagesContentMapWithProperText = textractResult?.processedPages;
+        console.log(processedPages);
+        console.log(numberOfPagesDetected);
+        console.log(pagesContentMapWithProperText);
+
+        if (
+          processedPages &&
+          numberOfPagesDetected &&
+          pagesContentMapWithProperText
+        ) {
+          logger.debug("finish textract");
+          pagesContentMapProperText = pagesContentMapWithProperText;
+          const essayObjects = groupEssayPagesByStudent(processedPages);
+          numberOfPagesDetectedInTheDoc = numberOfPagesDetected;
+          logObject.numberOfStudents = essayObjects ? essayObjects.length : 0;
+          const activityClassroomStudents = await getStudentsInAClassroomAPI(
+            activity.classroomID
+          );
+          const result = await processEssays(
+            essayObjects,
+            activity,
+            prompt,
+            ENDPOINT,
+            activityClassroomStudents,
+            lambdaService,
+            studentHWLogsPerStudentMap,
+            ddbClient
+          );
+          studentsPageMapping = result.studentsPageMapping;
+          studentsHandWritingLog = result.studentsHandWritingLog;
+        }
       }
     }
     // return
@@ -119,6 +132,9 @@ const handlerV2 = async (event, job) => {
       numberOfPagesDetectedInTheDoc
     );
 
+    console.log("------------------>", wasLogUploaded);
+    console.log("------------------>", generalLogFileKey);
+
     await createLogRecord(
       ddbClient,
       logObject,
@@ -131,14 +147,14 @@ const handlerV2 = async (event, job) => {
       wasLogUploaded
     );
     await createUserNotification(logObject);
-
-    clearCurrentLog();
   } catch (error) {
     logger.error(`There was an error while processing the file: ${error} `);
     await createUserNotification(
       logObject,
-      `It is very likely that you are using the wrong template in the ${logObject.uploadedFileName} file uploaded to the handwriting module; please check it and upload it again.`
+      `It is very likely that you are using the wrong template in the file: ${logObject.uploadedFileName} or the pages have extra text printed/written on the boundaries and this is not allowing us to read the template, please check and fix any issues in the file(s) and upload it(them) again.`
     );
+  } finally {
+    clearCurrentLog();
   }
 };
 

@@ -189,13 +189,6 @@ module.exports.getStudentTestsForAnalysis = /* GraphQL */ `
               difficulty
               acCode {
                 acCode
-                codeMappings {
-                  items {
-                    code
-                    codeMappingType
-                    urlPrefix
-                  }
-                }
               }
             }
           }
@@ -332,13 +325,6 @@ module.exports.dummyGetTestResultAnswersGA = /* GraphQL */ `
             testQuestion {
               acCode {
                 acCode
-                codeMappings {
-                  items {
-                    code
-                    codeMappingType
-                    urlPrefix
-                  }
-                }
               }
             }
           }

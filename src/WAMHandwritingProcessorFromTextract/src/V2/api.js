@@ -567,13 +567,14 @@ const processTextactResult = async (textractClient, jobId) => {
 
     // iterating through the map to get the final essays.
     // eslint-disable-next-line no-unused-vars
-    const { textractEssays, pagesContentMapWithProperText } =
-      createEssayObjects(pagesContentMap);
+
+    const essayObjects =  createEssayObjects(pagesContentMap);
+     
     const numberOfPagesDetected = pages;
     return {
-      processedPages: textractEssays,
+      processedPages: essayObjects?.textractEssays,
       numberOfPagesDetected,
-      pagesContentMapWithProperText,
+      pagesContentMapWithProperText: essayObjects?.pagesContentMapWithProperText,
     };
   } catch (error) {
     logger.error(`Error found while reading textract ${error}`);

@@ -1,4 +1,3 @@
-
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 // amplify/backend/function/appsyncOperations/opt/appSyncRequest.js
@@ -31,7 +30,6 @@ exports.request = (queryDetails) => {
 
   return new Promise((resolve, reject) => {
     let body = [];
-
     const httpRequest = https.request({ ...req, host: endpoint }, (result) => {
       result.on("data", (data) => {
         body.push(data);
@@ -41,6 +39,7 @@ exports.request = (queryDetails) => {
         resolve(JSON.parse(body.toString()));
       });
       result.on("error", (error) => {
+        console.error(error);
         reject(error);
       });
     });

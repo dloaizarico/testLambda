@@ -25,7 +25,6 @@ const clearCurrentLog = () => {
 };
 
 logger.on("data", async (info) => {
-  console.log("loggerrrr---------->", info, info?.level, info?.message);
   if (info && info.level === "info") {
     infoLog.push(info?.message);
   }
@@ -47,7 +46,7 @@ const uploadInfoLogToS3 = async (s3Client, s3LogPath) => {
     }
     return false;
   } catch (error) {
-    console.log(`Unable to upload the file into s3. ${error}`);
+    console.log(` ----------------------------> Unable to upload the file into s3. ${error}`);
   }
 };
 

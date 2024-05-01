@@ -68,7 +68,7 @@ function getDate(dob) {
 // It takes a string and format it into Proper.
 function formatToProper(str) {
   return str.replace(/\w\S*/g, function (txt) {
-    return txt.charAt(0)?.toUpperCase() + txt.substr(1).toLowerCase();
+    return txt.charAt(0)?.toUpperCase() + txt.substr(1)?.toLowerCase();
   });
 }
 
@@ -155,7 +155,6 @@ const getCharactersToAddBasedOnCurrentDateOrNameString = (string, type) => {
       : 4;
   }
 };
-
 
 // It maps the textract result to a JSON object.
 // lines are per essay and this is the return object from textract.
@@ -341,7 +340,7 @@ const createEssayObjects = (pagesContentMap) => {
         page: {
           page,
           pageInDocument: page,
-          text: textArray
+          text: textArray,
         },
         key: `unidentified${page}`,
         unidentified: true,
@@ -427,11 +426,11 @@ const getHeadersIndexes = (lines) => {
       .indexOf("name");
     // index where the DOB header is located in the line found before.
     let DOBWordIndexWithinTheLine =
-      lines[DOBLineIndex].toLowerCase().indexOf("dob");
+      lines[DOBLineIndex]?.toLowerCase().indexOf("dob");
     // index where the page header is located in the line found before.
     let pageWordIndexWithinTheLine = lines[pageLineIndex]
-      .toLowerCase()
-      .indexOf("page");
+      ?.toLowerCase()
+      ?.indexOf("page");
 
     // calculating start indexes for reading the values of the student attributes.
     startNameIndex =

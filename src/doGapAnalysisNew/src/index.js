@@ -1,6 +1,5 @@
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 /* Amplify Params - DO NOT EDIT
 	API_BPEDSYSGQL_GRAPHQLAPIENDPOINTOUTPUT
 	API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT
@@ -14,6 +13,7 @@ Amplify Params - DO NOT EDIT */
 const { request } = require("./appSyncRequest"); // only for Lambda version
 const { v4: uuidv4 } = require("uuid");
 const AWS = require("aws-sdk");
+const { logger } = require("./logger");
 AWS.config.update({ region: process.env.REGION });
 const s3Client = new AWS.S3();
 
@@ -24,7 +24,7 @@ const dayjs = require("dayjs");
 const FORMATTED = true;
 const UNFORMATTED = false;
 
-const event = require("./event-dev.json");
+const event = require("./event-prod.json");
 
 const {
   getTestResultsByTestByStudentByTestDate, // Frank's GA only
@@ -200,9 +200,22 @@ function doGapAnalysis(learningAreas, data, formatted) {
     .filter((g) => g.summary.filter((s) => s.incorrectCodes > 0).length > 0);
 }
 
+
 async function getStudentTestResults(studentID, tests, mappingMap) {
   let response = [];
   let promises = [];
+  // console.log("studentID", studentID);
+
+  const testsC = tests.map((test) => ({
+    testID: test.testID,
+    date: test.testDate,
+  }));
+  // if(studentID==="817ed253-3939-444f-87c9-33f16aeda9a2"){
+  //   console.log(
+  //     "tests",
+  //     JSON.stringify(testsC)
+  //   );
+  // }
 
   for (let index = 0; index < tests.length; index++) {
     const test = tests[index];
@@ -234,7 +247,7 @@ async function getStudentTestResults(studentID, tests, mappingMap) {
           resolve([]);
         }
       } catch (error) {
-        console.error("error getting student results", input, error);
+        logger.error(`error getting student results, ${input}, ${error}`);
         resolve([]);
       }
     });
@@ -243,13 +256,15 @@ async function getStudentTestResults(studentID, tests, mappingMap) {
   }
 
   const data = await Promise.all(promises);
+  console.log(`getting test result by student by test date. ${data?.length}`);
   response = _.flatten(data);
+  console.log(`response ${response?.length}`);
+  // For each result answer, taking the test question related and the accode and find the accode mappings to the new curriculum, then assign it to the final return object.
   for (let index = 0; index < response.length; index++) {
     const result = response[index];
     const codeMappings = mappingMap.get(result?.testQuestion?.acCode.id);
-    result.testQuestion.acCode.codeMappings= { items: codeMappings }
+    result.testQuestion.acCode.codeMappings = { items: codeMappings };
   }
-
   return response;
 }
 
@@ -274,10 +289,15 @@ async function getClassTestResults(classroomID, tests, mappingMap) {
       if (items.length > 0) {
         let promises = [];
 
+        logger.debug(`${items.length} items to process`);
+
         for (let index = 0; index < items.length; index++) {
           const classStudent = items[index];
           const promise = new Promise((resolve) => {
-            resolve(getStudentTestResults(classStudent.studentID, tests, mappingMap));
+            console.log(classStudent.studentID);
+            resolve(
+              getStudentTestResults(classStudent.studentID, tests, mappingMap)
+            );
           });
           promises.push(promise);
         }
@@ -286,10 +306,10 @@ async function getClassTestResults(classroomID, tests, mappingMap) {
         response = _.flatten(resp);
       }
     } catch (error) {
-      console.error("error getting class students", input, error);
+      logger.error(`error getting class students ${input}, ${error}`);
     }
   } catch (error) {
-    console.error("error getting class test results", classroomID, error);
+    logger.error(`error getting class test results, ${classroomID}, ${error}`);
   }
 
   return response;
@@ -316,7 +336,7 @@ async function getSchoolDataFromClassroomID(classroomID, schoolYear) {
     });
     schoolData = resp.data.getClassroom;
   } catch (error) {
-    console.error("error getting schoolData from classroomID", error);
+    logger.error(`error getting schoolData from classroomID, ${error}`);
     throw error;
   }
   return schoolData; // a single schoolID and and array of students
@@ -343,11 +363,11 @@ async function getStudentsInCohort(schoolID, yearLevelID, schoolYear) {
     });
     studentIDs = resp.data.getSchoolStudentsByYearAndYearLevel.items;
   } catch (error) {
-    console.error(
-      "error finding cohort students",
-      schoolID,
-      yearLevelID,
-      error
+    logger.error(
+      `error finding cohort students
+      ${schoolID},
+      ${yearLevelID},
+      ${error}`
     );
   }
   return studentIDs; //this is an array of {studentID:"djhasdhhhh"}
@@ -415,7 +435,7 @@ async function findTestResultAnswers(studentIDs, testUploads) {
       } while (nextToken != null);
       return `Done ${testUpload.testUploadID} in ${n} queries`;
     } catch (error) {
-      console.error("error getting testResults data", error);
+      logger.error(`error getting testResults data, ${error}`);
       return error;
     }
   }
@@ -435,7 +455,7 @@ async function findTestResultAnswers(studentIDs, testUploads) {
       await fn(); // execute the function
     }
   } catch (err) {
-    console.log(err);
+    logger.error(err);
   }
 
   return rawTestResults;
@@ -497,144 +517,124 @@ const findYearSixId = (yearLevels) => {
 };
 
 const handler = async (event) => {
-  // you cant pass a "request body" with GET requests so the ApiGateway request is a PUT
-  const inputData = event.body;
-  const studentID = inputData.studentID;
-  const classroomID = inputData.classroomID;
-  const schoolID = inputData.schoolID;
-  const yearLevelID = inputData.yearLevelID;
-  const networkSchools = inputData.networkSchools;
-  // Note array of objects need to be parsed twice
-  const tests = inputData.tests; //( for old Gap Analysis)
-  const testUploads = inputData.allTestUploads; // (for new Gap Analysis)
-  const learningAreas = inputData.learningAreas;
-  const schoolYear = inputData.schoolYear;
-
-  let response = [];
-  let results = [];
-
-  //let rawTestResults = [];
-  let testResultsAnswers = [];
-
-  let yearLevels = [];
-
-  const client = new DynamoDBClient({});
-
-  const mappingMap = await getAcCodeMappings(client);
-
   try {
-    const yearLevelResponse = await request({
-      query: ListYearLevels,
-      variables: { limit: 100 },
+    // you cant pass a "request body" with GET requests so the ApiGateway request is a PUT
+    logger.debug(`event received ${event?.body}`);
+    const inputData = JSON.parse(event.body);
+    const studentID = inputData.studentID;
+    const classroomID = inputData.classroomID;
+    const schoolID = inputData.schoolID;
+    const yearLevelID = inputData.yearLevelID;
+    const networkSchools = inputData.networkSchools;
+    // Note array of objects need to be parsed twice
+    const tests = inputData.tests; //( for old Gap Analysis)
+    const testUploads = inputData.allTestUploads; // (for new Gap Analysis)
+    const learningAreas = inputData.learningAreas;
+    const schoolYear = inputData.schoolYear;
+
+    let response = [];
+    let results = [];
+
+    //let rawTestResults = [];
+    let testResultsAnswers = [];
+
+    let yearLevels = [];
+
+    const dynamoClient = new AWS.DynamoDB.DocumentClient({
+      region: process.env.REGION,
     });
-    yearLevels = yearLevelResponse.data.listYearLevels.items;
-  } catch (error) {
-    console.error("error getting the year levels", error);
-    throw error;
-  }
 
-  if (networkSchools && yearLevelID) {
-    // do this once for every schoolID
-    let promises = networkSchools.map(async (schoolID) => {
-      // these have to be local variables inside the asyn
-      // or timing of initialisations will be off if global
-      let studentIDs = [];
-      // find the student list in each school
-      try {
-        // find the student list in each school
-        let resp;
+    // Getting the existing mapping for each ACCODE.
+    const mappingMap = await getAcCodeMappings(dynamoClient);
 
-        // Check if the year level selected is Seven.
-        if (isYearSevenSelected(yearLevels, yearLevelID)) {
-          // get the students of that school that were in year 6 in the previous school year - this is only valid for high schools that receives students from primary
-          resp = await getStudentsInCohort(
-            schoolID,
-            findYearSixId(yearLevels),
-            dayjs().subtract(1, "year").format("YYYY").toString()
-          );
-        } else {
-          resp = await getStudentsInCohort(
-            schoolID,
-            yearLevelID,
-            schoolYear
-              ? schoolYear
-              : parseInt(dayjs().format("YYYY").toString())
-          );
-        }
+    logger.debug(`mapping map ${mappingMap?.size}`);
 
-        resp.forEach((response) => {
-          studentIDs.push(response.studentID);
-        });
-      } catch (error) {
-        console.log("error finding students in cohort");
-        return error;
-      }
-
-      // testUploads are school specific, so remove any not for this school
-      let thisSchoolTestUploads = testUploads.filter((testUpload) => {
-        if (testUpload.schoolID === schoolID) return true;
-        return false;
+    try {
+      const yearLevelResponse = await request({
+        query: ListYearLevels,
+        variables: { limit: 100 },
       });
+      yearLevels = yearLevelResponse.data.listYearLevels.items;
+    } catch (error) {
+      logger.error(`error getting the year levels, ${error}`);
+      throw error;
+    }
 
-      let thisSchoolResults = [];
+    logger.debug(`Get the year levels`);
 
-      if (thisSchoolTestUploads.length > 0) {
+    if (networkSchools && yearLevelID) {
+      // do this once for every schoolID
+      let promises = networkSchools.map(async (schoolID) => {
+        // these have to be local variables inside the asyn
+        // or timing of initialisations will be off if global
+        let studentIDs = [];
+        // find the student list in each school
         try {
-          thisSchoolResults = await findTestResultAnswers(
-            studentIDs,
-            thisSchoolTestUploads
-          );
+          // find the student list in each school
+          let resp;
+
+          // Check if the year level selected is Seven.
+          if (isYearSevenSelected(yearLevels, yearLevelID)) {
+            // get the students of that school that were in year 6 in the previous school year - this is only valid for high schools that receives students from primary
+            resp = await getStudentsInCohort(
+              schoolID,
+              findYearSixId(yearLevels),
+              dayjs().subtract(1, "year").format("YYYY").toString()
+            );
+          } else {
+            resp = await getStudentsInCohort(
+              schoolID,
+              yearLevelID,
+              schoolYear
+                ? schoolYear
+                : parseInt(dayjs().format("YYYY").toString())
+            );
+          }
+
+          resp.forEach((response) => {
+            studentIDs.push(response.studentID);
+          });
         } catch (error) {
-          console.log("error finding testResultAnswers");
+          logger.error("error finding students in cohort");
           return error;
         }
-      }
-      thisSchoolResults.forEach((result) => {
-        testResultsAnswers.push(result);
+
+        // testUploads are school specific, so remove any not for this school
+        let thisSchoolTestUploads = testUploads.filter((testUpload) => {
+          if (testUpload.schoolID === schoolID) return true;
+          return false;
+        });
+
+        let thisSchoolResults = [];
+
+        if (thisSchoolTestUploads.length > 0) {
+          try {
+            thisSchoolResults = await findTestResultAnswers(
+              studentIDs,
+              thisSchoolTestUploads
+            );
+          } catch (error) {
+            logger.error("error finding testResultAnswers");
+            return error;
+          }
+        }
+        thisSchoolResults.forEach((result) => {
+          testResultsAnswers.push(result);
+        });
       });
-    });
-    await Promise.all(promises);
-  } else {
-    // Here we find the list of students to match the selected group
-    let studentIDs = [];
+      await Promise.all(promises);
+      logger.debug(`Network analysis`);
+    } else {
+      // Here we find the list of students to match the selected group
+      let studentIDs = [];
 
-    if (studentID) {
-      // for a single student - just use Franks method and return
-      try {
-        results = await getStudentTestResults(studentID, tests, mappingMap);
-        response = doGapAnalysis(learningAreas, results, UNFORMATTED);
-      } catch (error) {
-        console.log("error doing student Gap Analysis", error);
-        return error;
-      }
-
-      // let responseObj = {
-      //   statusCode: 200,
-      //   headers,
-      //   body: JSON.stringify(response),
-      // };
-      return formatResponse(response);
-    } else if (classroomID) {
-      // classroomIDs are unique so we find the schoolID, and the list of students in the class
-      let resp = [];
-      try {
-        resp = await getSchoolDataFromClassroomID(
-          classroomID,
-          schoolYear ? schoolYear : parseInt(dayjs().format("YYYY").toString())
-        );
-      } catch (error) {
-        console.log("error doing student Gap Analysis");
-        return error;
-      }
-
-      // if the no of students in Class/Focus Group is < some cutoff (say 20) we still use Franks method
-      if (resp.students.items.length < 20) {
+      if (studentID) {
+        // for a single student - just use Franks method and return
         try {
-          results = await getClassTestResults(classroomID, tests, mappingMap);
+          results = await getStudentTestResults(studentID, tests, mappingMap);
           response = doGapAnalysis(learningAreas, results, UNFORMATTED);
-          console.log(JSON.stringify(response));
         } catch (error) {
-          console.log("error getting class results", error);
+          logger.error(`error doing student Gap Analysis ${error}`);
           return error;
         }
 
@@ -643,208 +643,263 @@ const handler = async (event) => {
         //   headers,
         //   body: JSON.stringify(response),
         // };
+        logger.error(`response: ${formatResponse(response)}`);
         return formatResponse(response);
+      } else if (classroomID) {
+        // classroomIDs are unique so we find the schoolID, and the list of students in the class
+        let resp = [];
+        try {
+          resp = await getSchoolDataFromClassroomID(
+            classroomID,
+            schoolYear
+              ? schoolYear
+              : parseInt(dayjs().format("YYYY").toString())
+          );
+
+          logger.debug(`got the students from the classroom.`);
+        } catch (error) {
+          logger.error(`error doing classroom Gap Analysis ${error}`);
+          return error;
+        }
+
+        // if the no of students in Class/Focus Group is < some cutoff (say 20) we still use Franks method
+        // if (resp.students.items.length < 20) {
+        //   try {
+        //     results = await getClassTestResults(
+        //       classroomID,
+        //       tests,
+        //       mappingMap
+        //     );
+        //     logger.debug(`got the class test results - method 1`);
+        //     response = doGapAnalysis(learningAreas, results, UNFORMATTED);
+        //     logger.debug(`got the gap analysis`);
+        //     logger.debug(JSON.stringify(response));
+        //   } catch (error) {
+        //     logger.error(`error getting class resuts ${error}`);
+        //     return error;
+        //   }
+
+        //   // let responseObj = {
+        //   //   statusCode: 200,
+        //   //   headers,
+        //   //   body: JSON.stringify(response),
+        //   // };
+        //   logger.error(`response: ${formatResponse(response)}`);
+        //   return formatResponse(response);
+        // }
+        // too many students in class so go this route
+        // resp is one schoolID and an array of students
+        resp.students.items.forEach((item) => {
+          studentIDs.push(item.studentID);
+        });
+        logger.debug(`too many students ${resp?.students?.items?.length}`);
+      } else if (schoolID && yearLevelID) {
+        // now find the list of students in that cohort
+        let resp = [];
+        try {
+          resp = await getStudentsInCohort(
+            schoolID,
+            yearLevelID,
+            schoolYear
+              ? schoolYear
+              : parseInt(dayjs().format("YYYY").toString())
+          );
+        } catch (error) {
+          logger.error(`error getting student in cohort ${error}`);
+          return error;
+        }
+
+        resp.forEach((response) => {
+          studentIDs.push(response.studentID);
+        });
       }
-      // too many students in class so go this route
-      // resp is one schoolID and an array of students
-      resp.students.items.forEach((item) => {
-        studentIDs.push(item.studentID);
-      });
-    } else if (schoolID && yearLevelID) {
-      // now find the list of students in that cohort
-      let resp = [];
-      try {
-        resp = await getStudentsInCohort(
-          schoolID,
-          yearLevelID,
-          schoolYear ? schoolYear : parseInt(dayjs().format("YYYY").toString())
-        );
-      } catch (error) {
-        console.log("error getting student in cohort");
-        return error;
+      // now get the testResultAnswers for the selected students
+      testResultsAnswers = await findTestResultAnswers(studentIDs, testUploads);
+      logger.debug(`Student, classroom or cohort analysis`);
+    }
+
+    // when we reach here we have a giant array of TestResultAnswers
+    // with each element
+    //   {
+    //    studentID
+    //    acCodeID
+    //    proficiency
+    //   }
+    // Next we need to create a map with keys studentID#acCode ( will have multiple proficiency values)
+    // and calculate the GapRatio from the proficiency for each value and reduce to one value with the GapRatio
+    // Then for each gap record
+    //    pad out the student data (already looked up at the start)
+    //    pad out the acCode data ( has to be looked up)
+
+    // now make a new array to mimic testResultAnswersGA
+    // This step is redundant and should have been removed.
+    //;
+    //rawTestResults.forEach((testResult) => {
+    //  let op = {};
+    //  op.studentID = testResult.studentID;
+    //  op.acCode = testResult.acCode; // this is really acCodeID
+    //  op.proficiency = testResult.proficiency;
+    //  testResultsAnswers.push(op);
+    //});
+
+    // now map by studentID,acCode
+    let uniqueTests = new Map();
+    testResultsAnswers.forEach((resultAnswer) => {
+      let key = `${resultAnswer.studentID}#${resultAnswer.acCode}`;
+      let value = uniqueTests.get(key);
+      if (value === undefined) {
+        uniqueTests.set(key, [resultAnswer]);
+      } else {
+        value.push(resultAnswer);
+        uniqueTests.set(key, value);
       }
-
-      resp.forEach((response) => {
-        studentIDs.push(response.studentID);
-      });
-    }
-    // now get the testResultAnswers for the selected students
-    testResultsAnswers = await findTestResultAnswers(studentIDs, testUploads);
-  }
-
-  // when we reach here we have a giant array of TestResultAnswers
-  // with each element
-  //   {
-  //    studentID
-  //    acCodeID
-  //    proficiency
-  //   }
-  // Next we need to create a map with keys studentID#acCode ( will have multiple proficiency values)
-  // and calculate the GapRatio from the proficiency for each value and reduce to one value with the GapRatio
-  // Then for each gap record
-  //    pad out the student data (already looked up at the start)
-  //    pad out the acCode data ( has to be looked up)
-
-  // now make a new array to mimic testResultAnswersGA
-  // This step is redundant and should have been removed.
-  //;
-  //rawTestResults.forEach((testResult) => {
-  //  let op = {};
-  //  op.studentID = testResult.studentID;
-  //  op.acCode = testResult.acCode; // this is really acCodeID
-  //  op.proficiency = testResult.proficiency;
-  //  testResultsAnswers.push(op);
-  //});
-
-  // now map by studentID,acCode
-  let uniqueTests = new Map();
-  testResultsAnswers.forEach((resultAnswer) => {
-    let key = `${resultAnswer.studentID}#${resultAnswer.acCode}`;
-    let value = uniqueTests.get(key);
-    if (value === undefined) {
-      uniqueTests.set(key, [resultAnswer]);
-    } else {
-      value.push(resultAnswer);
-      uniqueTests.set(key, value);
-    }
-  });
-
-  // Find a unique list of acCodes, and look up details
-  let uniqueAcCodes = new Map();
-  testResultsAnswers.forEach((item) => {
-    if (uniqueAcCodes.get(item.acCode) === undefined) {
-      uniqueAcCodes.set(item.acCode, item.acCode);
-    }
-  });
-
-  //look up the acCodeData
-  let uniqueAcCodesArray = Array.from(uniqueAcCodes.values());
-
-  let promises = uniqueAcCodesArray.map(async (acCodeID) => {
-    let input = {
-      id: acCodeID,
-    };
-    try {
-      //const resp = await API.graphql(graphqlOperation(getAcCodeData, input));
-      const resp = await request({
-        query: getAcCodeData,
-        variables: input,
-      });
-      uniqueAcCodes.set(acCodeID, resp.data.getAcCode);
-    } catch (error) {
-      console.error("error getting acCodeData from acCode", error);
-      throw error;
-    }
-    return "done";
-  });
-  await Promise.all(promises);
-
-  // find a unique list of students to minimise data lookup
-  let uniqueStudents = new Map();
-  testResultsAnswers.forEach((item) => {
-    if (uniqueStudents.get(item.studentID) === undefined) {
-      uniqueStudents.set(item.studentID, item.studentID);
-    }
-  });
-
-  //lookup the student data
-  // Note:We may be looking up data for some students that have no gaps -
-  // but in a large test, probably every student has at least one gap - so maybe not so bad
-  let uniqueStudentsArray = Array.from(uniqueStudents.values());
-  let promises1 = uniqueStudentsArray.map(async (studentID) => {
-    let input = {
-      id: studentID,
-    };
-    try {
-      //const resp = await API.graphql(graphqlOperation(getStudentData, input));
-      const resp = await request({
-        query: getStudentData,
-        variables: input,
-      });
-      let studentData = resp.data.getStudent;
-      uniqueStudents.set(studentID, studentData);
-    } catch (error) {
-      console.error("error getting StudentData from studentID", error);
-      throw error;
-    }
-    return "done";
-  });
-  await Promise.all(promises1);
-
-  // Make Franks "list" structure
-  let unsortedList = [];
-  testResultsAnswers.forEach((result) => {
-    let o = {}; // o for output
-    let acCodeData = uniqueAcCodes.get(result.acCode);
-    let studentData = uniqueStudents.get(result.studentID);
-
-    const codeMappings = mappingMap.get(acCodeData.id);
-    o.proficiency = result.proficiency;
-    o.questionNo = 99;
-    o.score = "99";
-    o.testDate = "2021-01-01";
-    o.testID = "99";
-    o.testResultAnswer = "99";
-    o.studentAnswer = "99";
-    o.student = studentData;
-    o.acCode = {
-      acCode: acCodeData.acCode,
-      curriculumEntry: acCodeData.curriculumEntry,
-      learningArea: acCodeData.learningArea,
-      skill: acCodeData.skill,
-      strand: acCodeData.strand,
-      strandID: acCodeData.strand.id,
-      substrand: acCodeData.substrand,
-      substrandID: acCodeData.substrand.id,
-      yearLevel: acCodeData.yearLevel,
-      yearLevelID: acCodeData.yearLevel.id,
-      codeMappings: { items: codeMappings },
-    };
-    o.learningArea = acCodeData.learningArea;
-    o.test = { testName: "TestName 99" };
-    o.yearLevel = acCodeData.yearLevel;
-    unsortedList.push(o);
-  });
-  // now sort by yearLevel description ( for the final UI display)
-  // this sort is incorrect becasue it lists Y10 ahead of y2
-  //let list = _.sortBy(unsortedList, "yearLevel.description");
-  // so need a function that will return a field that represents the desired sort order
-  function sortByYL(o) {
-    switch (o.yearLevel.yearCode) {
-      case "K":
-        return 1;
-      case "FY":
-        return 2;
-      // otherwise its something like "Y1" or "Y11"
-      default: {
-        return parseInt(o.yearLevel.yearCode.substr(1, 3)) + 2;
-      }
-    }
-  }
-
-  let list = _.sortBy(unsortedList, sortByYL);
-
-  let finalResult = doGapAnalysis(learningAreas, list, FORMATTED);
-
-  const returnData = formatResponse(finalResult);
-
-  // If the analysis is by network, it saves the result in an s3 file because of the size and it returns the key of the file to the client.
-  if (networkSchools && yearLevelID) {
-    const key = `gapAnalysis/${uuidv4()}-networkResult.txt`;
-    await s3Client
-      .putObject({
-        Bucket: process.env.BUCKET,
-        Key: `public/${key}`,
-        ContentType: "text/plain",
-        Body: JSON.stringify(returnData),
-      })
-      .promise();
-
-    return formatResponse({
-      reportUrl: key,
     });
-  } else {
-    return returnData;
+
+    logger.debug(`finished mapping by studentID`);
+
+    // Find a unique list of acCodes, and look up details
+    let uniqueAcCodes = new Map();
+    testResultsAnswers.forEach((item) => {
+      if (uniqueAcCodes.get(item.acCode) === undefined) {
+        uniqueAcCodes.set(item.acCode, item.acCode);
+      }
+    });
+
+    //look up the acCodeData
+    let uniqueAcCodesArray = Array.from(uniqueAcCodes.values());
+
+    let promises = uniqueAcCodesArray.map(async (acCodeID) => {
+      let input = {
+        id: acCodeID,
+      };
+      try {
+        //const resp = await API.graphql(graphqlOperation(getAcCodeData, input));
+        const resp = await request({
+          query: getAcCodeData,
+          variables: input,
+        });
+        uniqueAcCodes.set(acCodeID, resp.data.getAcCode);
+      } catch (error) {
+        logger.error(`error getting acCodeData from acCode, ${error}`);
+        throw error;
+      }
+      return "done";
+    });
+    await Promise.all(promises);
+
+    // find a unique list of students to minimise data lookup
+    let uniqueStudents = new Map();
+    testResultsAnswers.forEach((item) => {
+      if (uniqueStudents.get(item.studentID) === undefined) {
+        uniqueStudents.set(item.studentID, item.studentID);
+      }
+    });
+
+    //lookup the student data
+    // Note:We may be looking up data for some students that have no gaps -
+    // but in a large test, probably every student has at least one gap - so maybe not so bad
+    let uniqueStudentsArray = Array.from(uniqueStudents.values());
+    let promises1 = uniqueStudentsArray.map(async (studentID) => {
+      let input = {
+        id: studentID,
+      };
+      try {
+        //const resp = await API.graphql(graphqlOperation(getStudentData, input));
+        const resp = await request({
+          query: getStudentData,
+          variables: input,
+        });
+        let studentData = resp.data.getStudent;
+        uniqueStudents.set(studentID, studentData);
+      } catch (error) {
+        logger.error(`error getting StudentData from studentID, ${error}`);
+        throw error;
+      }
+      return "done";
+    });
+    await Promise.all(promises1);
+
+    // Make Franks "list" structure
+    let unsortedList = [];
+    testResultsAnswers.forEach((result) => {
+      let o = {}; // o for output
+      let acCodeData = uniqueAcCodes.get(result.acCode);
+      let studentData = uniqueStudents.get(result.studentID);
+      const codeMappings = mappingMap.get(acCodeData.id);
+      o.proficiency = result.proficiency;
+      o.questionNo = 99;
+      o.score = "99";
+      o.testDate = "2021-01-01";
+      o.testID = "99";
+      o.testResultAnswer = "99";
+      o.studentAnswer = "99";
+      o.student = studentData;
+      o.acCode = {
+        acCode: acCodeData.acCode,
+        curriculumEntry: acCodeData.curriculumEntry,
+        learningArea: acCodeData.learningArea,
+        skill: acCodeData.skill,
+        strand: acCodeData.strand,
+        strandID: acCodeData.strand.id,
+        substrand: acCodeData.substrand,
+        substrandID: acCodeData.substrand.id,
+        yearLevel: acCodeData.yearLevel,
+        yearLevelID: acCodeData.yearLevel.id,
+        codeMappings: { items: codeMappings },
+      };
+      o.learningArea = acCodeData.learningArea;
+      o.test = { testName: "TestName 99" };
+      o.yearLevel = acCodeData.yearLevel;
+      unsortedList.push(o);
+    });
+    // now sort by yearLevel description ( for the final UI display)
+    // this sort is incorrect becasue it lists Y10 ahead of y2
+    //let list = _.sortBy(unsortedList, "yearLevel.description");
+    // so need a function that will return a field that represents the desired sort order
+    function sortByYL(o) {
+      switch (o.yearLevel.yearCode) {
+        case "K":
+          return 1;
+        case "FY":
+          return 2;
+        // otherwise its something like "Y1" or "Y11"
+        default: {
+          return parseInt(o.yearLevel.yearCode.substr(1, 3)) + 2;
+        }
+      }
+    }
+
+    let list = _.sortBy(unsortedList, sortByYL);
+    let finalResult = doGapAnalysis(learningAreas, list, FORMATTED);
+    const returnData = formatResponse(finalResult);
+
+    logger.debug(`finished all the list creation.`);
+
+    // If the analysis is by network, it saves the result in an s3 file because of the size and it returns the key of the file to the client.
+    if (networkSchools && yearLevelID) {
+      const key = `gapAnalysis/${uuidv4()}-networkResult.txt`;
+      await s3Client
+        .putObject({
+          Bucket: process.env.BUCKET,
+          Key: `public/${key}`,
+          ContentType: "text/plain",
+          Body: JSON.stringify(returnData),
+        })
+        .promise();
+      logger.debug(
+        `response: ${formatResponse({
+          reportUrl: key,
+        })}`
+      );
+      return formatResponse({
+        reportUrl: key,
+      });
+    } else {
+      logger.debug(returnData);
+      return returnData;
+    }
+  } catch (error) {
+    logger.error(`error running GA ${error}`);
   }
 };
 
