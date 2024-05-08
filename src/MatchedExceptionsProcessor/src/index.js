@@ -1,3 +1,5 @@
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
 const { logger } = require("./logger");
@@ -9,16 +11,16 @@ const {
   getActivity,
 } = require("./api");
 const { request } = require("./appSyncRequest");
-const { S3Client } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { processMatchedExceptions } = require("./matchedExceptionsHelper");
 const { createNotification } = require("./graphql/bpmutations");
-const event = require("./event.json");
 
 // Constants for notifications.
 const sysType = "notify";
 const read = false;
 const sender = "admin@elastik.com";
 const expiryDaysForNotification = 2;
+const event = require("./event.json");
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
@@ -66,46 +68,72 @@ const handler = async (event) => {
         notificationMessage =
           "There was an error and the matching didn't finish, please contact support.";
       } else {
-        const prompt = await getPrompt(
-          ddbClient,
-          payloadRecord?.payload?.promptID
-        );
-        const activity = await getActivity(
-          ddbClient,
-          payloadRecord?.payload?.activityID
-        );
+        let payloadData;
 
-        result = await processMatchedExceptions(
-          ddbClient,
-          payloadRecord.payload,
-          s3Client,
-          ENDPOINT,
-          prompt,
-          activity
-        );
-        // await updateQueuePayloadToRead(ddbClient, message?.payloadID);
+        if (typeof payloadRecord.payload === "string") {
+          const command = new GetObjectCommand({
+            Bucket: process.env.BUCKET,
+            Key: payloadRecord.payload,
+          });
+          // It downloads the original file  with the payload content.
+          const response = await s3Client.send(command);
+          // it gets the Body to string.
+          const jsonString = await response.Body?.transformToString();
+          // it parse the information to a JSON.
+          payloadData = await JSON.parse(jsonString ?? "");
+        } else {
+          payloadData = payloadRecord?.payload;
+        }
+
+        console.log(typeof payloadRecord.payload);
+        console.log(payloadData);
+        console.log(payloadData?.promptID);
+        console.log(payloadData?.activityID);
+
+
+        // Get payload from s3.
+        const prompt = await getPrompt(ddbClient, payloadData?.promptID);
+        
+        const activity = await getActivity(ddbClient, payloadData?.activityID);
+
+        if (!prompt || !activity) {
+          logger.error(`The payload had been processed already.`);
+          notificationMessage =
+            "There was an error and the matching didn't finish, please contact support.";
+        } else {
+          result = await processMatchedExceptions(
+            ddbClient,
+            payloadData,
+            s3Client,
+            ENDPOINT,
+            prompt,
+            activity
+          );
+          await updateQueuePayloadToRead(ddbClient, message?.payloadID);
+          // Creating the notification for the user.
+          const input = {
+            sysType,
+            read,
+            readDate: "",
+            type: "Matched exceptions",
+            message: `The matching has been finished successfully for ${
+              prompt?.promptName
+            } created on ${new Date(
+              activity?.createdAt
+            ).toLocaleDateString()}.`,
+            recipient: message.userEmail,
+            sender,
+            expiryTime,
+          };
+
+          await request({
+            query: createNotification,
+            variables: { input },
+          });
+        }
       }
 
       logger.debug(`Process is finished ${result}`);
-
-      // Creating the notification for the user.
-      const input = {
-        sysType,
-        read,
-        readDate: "",
-        type: "Matched exceptions",
-        message: `The matching has been finished successfully for ${
-          prompt?.promptName
-        } created on ${new Date(activity?.createdAt).toLocaleDateString()}.`,
-        recipient: message.userEmail,
-        sender,
-        expiryTime,
-      };
-
-      await request({
-        query: createNotification,
-        variables: { input },
-      });
     } catch (err) {
       logger.error(
         `The process was not run for the ${messageId} due to ${err}`
