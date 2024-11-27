@@ -14,13 +14,13 @@ const { request } = require("./appSyncRequest");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { processMatchedExceptions } = require("./matchedExceptionsHelper");
 const { createNotification } = require("./graphql/bpmutations");
-
+const event = require("./event.json");
 // Constants for notifications.
 const sysType = "notify";
 const read = false;
 const sender = "admin@elastik.com";
 const expiryDaysForNotification = 2;
-const event = require("./event.json");
+
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
@@ -43,6 +43,10 @@ const handler = async (event) => {
 
       const ddbClient = new AWS.DynamoDB.DocumentClient();
 
+      let activity, prompt;
+      const genericError =
+        "There was an error and the matching didn't finish, please contact support.";
+
       const s3Client = new S3Client({
         apiVersion: "2006-03-01",
         region: process.env.REGION,
@@ -59,18 +63,18 @@ const handler = async (event) => {
         message?.payloadID
       );
       let result = {};
+      let notificationMessage = "";
       if (!payloadRecord || Object.keys(payloadRecord).length === 0) {
         logger.error(`payload received was empty, unable to continue`);
-        notificationMessage =
-          "There was an error and the matching didn't finish, please contact support.";
+        notificationMessage = genericError;
       } else if (payloadRecord.isRead) {
-        logger.error(`The payload had been processed already.`);
-        notificationMessage =
-          "There was an error and the matching didn't finish, please contact support.";
+        logger.error("The payload had been processed already.");
+        notificationMessage = genericError;
       } else {
         let payloadData;
-
+        // if the payload is not an object (before 1/5/2024), it's a string with a s3 file key.
         if (typeof payloadRecord.payload === "string") {
+          // get the file and transform into object.
           const command = new GetObjectCommand({
             Bucket: process.env.BUCKET,
             Key: payloadRecord.payload,
@@ -82,25 +86,22 @@ const handler = async (event) => {
           // it parse the information to a JSON.
           payloadData = await JSON.parse(jsonString ?? "");
         } else {
+          // If it's stored as an object, get the data as it is.
           payloadData = payloadRecord?.payload;
         }
 
-        console.log(typeof payloadRecord.payload);
-        console.log(payloadData);
-        console.log(payloadData?.promptID);
-        console.log(payloadData?.activityID);
+        prompt = await getPrompt(ddbClient, payloadData?.promptID);
+        activity = await getActivity(ddbClient, payloadData?.activityID);
 
-
-        // Get payload from s3.
-        const prompt = await getPrompt(ddbClient, payloadData?.promptID);
-        
-        const activity = await getActivity(ddbClient, payloadData?.activityID);
-
+        // If no prompt or activity was found, trigger error.
         if (!prompt || !activity) {
-          logger.error(`The payload had been processed already.`);
-          notificationMessage =
-            "There was an error and the matching didn't finish, please contact support.";
+          logger.error("The payload had been processed already.");
+          notificationMessage = genericError;
         } else {
+
+          console.log("pase el payload", payloadData);
+
+          // Match the exceptions.
           result = await processMatchedExceptions(
             ddbClient,
             payloadData,
@@ -109,30 +110,34 @@ const handler = async (event) => {
             prompt,
             activity
           );
-          await updateQueuePayloadToRead(ddbClient, message?.payloadID);
-          // Creating the notification for the user.
-          const input = {
-            sysType,
-            read,
-            readDate: "",
-            type: "Matched exceptions",
-            message: `The matching has been finished successfully for ${
-              prompt?.promptName
-            } created on ${new Date(
-              activity?.createdAt
-            ).toLocaleDateString()}.`,
-            recipient: message.userEmail,
-            sender,
-            expiryTime,
-          };
-
-          await request({
-            query: createNotification,
-            variables: { input },
-          });
+          // await updateQueuePayloadToRead(ddbClient, message?.payloadID);
         }
       }
+      // Check if there are any error messages.
+      notificationMessage =
+        notificationMessage === ""
+          ? `The matching has been finished successfully for ${
+              prompt?.promptName
+            } created on ${new Date(activity?.createdAt).toLocaleDateString()}.`
+          : notificationMessage;
 
+      // Creating the notification for the user.
+      const input = {
+        sysType,
+        read,
+        readDate: "",
+        type: "Matched exceptions",
+        message: notificationMessage,
+        recipient: message.userEmail,
+        sender,
+        expiryTime,
+      };
+
+      // create notification.
+      await request({
+        query: createNotification,
+        variables: { input },
+      });
       logger.debug(`Process is finished ${result}`);
     } catch (err) {
       logger.error(

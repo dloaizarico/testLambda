@@ -547,6 +547,7 @@ const getTokenForAuthentication = async (email) => {
       .promise();
 
     if (tokens?.AuthenticationResult && tokens.AuthenticationResult.IdToken) {
+      console.log("here-------------------------> token ",tokens.AuthenticationResult.IdToken);
       return tokens.AuthenticationResult.IdToken;
     } else {
       logger.info(`Unable to get the token for this student ${email} \n`);

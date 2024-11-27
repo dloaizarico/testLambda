@@ -25,6 +25,9 @@ const ACTIVITY_TABLE_NAME = "Activity";
 const PROMPT_TABLE_NAME = "Prompt";
 const STUDENT_HANDWRITING_LOG = "StudentHandwritingLog";
 const HANDWRITING_LOG = "HandwritingLog";
+const FEATURE_FLAG_SCHOOL_TABLE_NAME = "ApplicationFeatureFlagSchool";
+const FEATURE_FLAG_GLOBAL_TABLE_NAME = "ApplicationFeatureFlagGlobal";
+const isWritemark2FeatureKey = "isWritemark2Active";
 
 const {
   sysType,
@@ -34,7 +37,62 @@ const {
   fuzzyMatchingLambdaName,
   matchStudentByNameUsingIndexesMethod,
   matchStudentByNameWithStrictEqualityMethod,
+  taskTypes,
+  llmConfigsKeys,
 } = require("../constants");
+
+const getFeatureFlagBySchool = async (ddbClient, featureKey, schoolID) => {
+  try {
+    let params = {
+      TableName: `${FEATURE_FLAG_SCHOOL_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+      IndexName: "byFeatureKey",
+      KeyConditionExpression: "featureKey = :featureKey",
+      FilterExpression: "schoolID = :schoolID",
+      ExpressionAttributeValues: {
+        ":featureKey": featureKey,
+        ":schoolID": schoolID,
+      },
+    };
+
+    let queryResult = await ddbClient.query(params).promise();
+    if (queryResult?.Items && queryResult.Items.length > 0) {
+      return queryResult.Items[0]?.featureValue;
+    } else {
+      params = {
+        TableName: `${FEATURE_FLAG_GLOBAL_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+        IndexName: "byFeatureKey",
+        KeyConditionExpression: "featureKey = :featureKey",
+        ExpressionAttributeValues: {
+          ":featureKey": featureKey,
+        },
+      };
+
+      queryResult = await ddbClient.query(params).promise();
+
+      if (queryResult?.Items && queryResult.Items.length > 0) {
+        return queryResult.Items[0]?.featureValue;
+      } else {
+        return null;
+      }
+    }
+  } catch (error) {
+    logger.info(
+      "The query to know the current status of the feature ID is not determined.  \n"
+    );
+    logger.error(
+      `error while fetching the feature flag value ${JSON.stringify(error)}`
+    );
+    return null;
+  }
+};
+
+function getSchoolYear() {
+  if (process.env.REGION === "eu-west-2" && new Date().getMonth() >= 7) {
+    return new Date().getFullYear() + 1;
+  } else {
+    return new Date().getFullYear();
+  }
+}
 
 /**
  * It takes the previous mapped essays from textract and process them by sending all the data into the different methods of Faculty's api.
@@ -134,7 +192,7 @@ const processEssays = async (
             schoolID: activity?.schoolID,
             schoolYearStudentID: {
               eq: {
-                schoolYear: new Date().getFullYear(),
+                schoolYear: getSchoolYear(),
                 studentID: studentID,
               },
             },
@@ -148,18 +206,28 @@ const processEssays = async (
           if (schoolStudentEmail && schoolStudentEmail !== "") {
             const token = await getTokenForAuthentication(schoolStudentEmail);
             if (token) {
+              const isWritemark2Activated = await getFeatureFlagBySchool(
+                ddbClient,
+                isWritemark2FeatureKey,
+                activity.schoolID
+              );
+
+              console.log(
+                `here--------------------------------- iswm: ${isWritemark2Activated}`
+              );
               const bearerToken = `Bearer ${token}`;
               studentsPageMapping.set(studentID, essay.pages);
               const essayId = await createEssay(
                 activity,
                 prompt,
                 studentID,
+                essay.text,
+                isWritemark2Activated === "true",
                 ENDPOINT,
                 bearerToken
               );
               if (essayId) {
                 studentHandWritingLog.essayID = essayId;
-                await saveEssayText(essayId, essay.text, ENDPOINT, bearerToken);
                 studentHandWritingLog.completed = true;
                 processedStudentIDs.push(studentID);
               } else {
@@ -241,27 +309,69 @@ const processEssays = async (
   };
 };
 
+const defineProperTaskTypeForEssay = (
+  promptTaskType,
+  isWritemark2Activated
+) => {
+  if (
+    promptTaskType === taskTypes.NARRATIVE &&
+    isWritemark2Activated &&
+    process.env.REGION === "ap-southeast-2"
+  ) {
+    return llmConfigsKeys.NARRATIVE_WM2;
+  }
+  if (promptTaskType === taskTypes.NARRATIVE && !isWritemark2Activated) {
+    return llmConfigsKeys.NARRATIVE;
+  }
+  if (
+    promptTaskType === taskTypes.PERSUASIVE &&
+    isWritemark2Activated &&
+    process.env.REGION === "ap-southeast-2"
+  ) {
+    return llmConfigsKeys.PERSUASIVE_WM2;
+  }
+  if (promptTaskType === taskTypes.PERSUASIVE && !isWritemark2Activated) {
+    return llmConfigsKeys.PERSUASIVE;
+  }
+  if (isWritemark2Activated && region === "eu-west-2") {
+    return llmConfigsKeys.UKWMRUBRIC;
+  }
+};
+
 // It calls faculty's api to create the student essay.
 const createEssay = async (
   activity,
   prompt,
   studentID,
+  essayText,
+  isWritemark2Activated,
   ENDPOINT,
   bearerToken
 ) => {
   const url = `${ENDPOINT}essay/`;
-
+  logger.debug(
+    `Writemark2 activated ------------------------------->${isWritemark2Activated}`
+  );
   const body = {
     activityId: activity?.id,
     classroomId: activity?.classroomID,
     schoolId: activity?.schoolID,
     studentId: studentID,
     taskDetails: {
-      taskType: prompt?.taskType?.toUpperCase(),
+      taskType: defineProperTaskTypeForEssay(
+        prompt?.taskType?.toUpperCase(),
+        isWritemark2Activated
+      ),
       essayPrompt: prompt?.promptName,
+      modelType: isWritemark2Activated ? "V2" : "V1",
     },
+    essayText,
   };
-
+  logger.debug(
+    `essay to send---------------------------------------------->: ${JSON.stringify(
+      body
+    )}`
+  );
   try {
     const result = await axios.post(url, JSON.stringify(body), {
       headers: {
@@ -281,25 +391,25 @@ const createEssay = async (
 };
 
 // It save the text of the essay.
-const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
-  const url = `${ENDPOINT}essay/${essayId}`;
+// const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
+//   const url = `${ENDPOINT}essay/${essayId}`;
 
-  try {
-    const result = await axios.put(url, JSON.stringify({ essayText: text }), {
-      headers: {
-        "Content-Type": "application/json;charset=UTF-8",
-        authorization: bearerToken,
-      },
-    });
-    logger.debug(`essayId, ${result?.data?.essayId}`);
-    return result?.data?.essayId;
-  } catch (error) {
-    const { message: errorMessage } = errorHandler(error);
-    logger.debug(
-      `There was an error while trying to create the essay: ${errorMessage}`
-    );
-  }
-};
+//   try {
+//     const result = await axios.put(url, JSON.stringify({ essayText: text }), {
+//       headers: {
+//         "Content-Type": "application/json;charset=UTF-8",
+//         authorization: bearerToken,
+//       },
+//     });
+//     logger.debug(`essayId, ${result?.data?.essayId}`);
+//     return result?.data?.essayId;
+//   } catch (error) {
+//     const { message: errorMessage } = errorHandler(error);
+//     logger.debug(
+//       `There was an error while trying to create the essay: ${errorMessage}`
+//     );
+//   }
+// };
 
 const getSystemParameterByKey = async (key) => {
   try {
@@ -567,14 +677,14 @@ const processTextactResult = async (textractClient, jobId) => {
 
     // iterating through the map to get the final essays.
     // eslint-disable-next-line no-unused-vars
+    const essayObjects = createEssayObjects(pagesContentMap);
 
-    const essayObjects =  createEssayObjects(pagesContentMap);
-     
     const numberOfPagesDetected = pages;
     return {
       processedPages: essayObjects?.textractEssays,
       numberOfPagesDetected,
-      pagesContentMapWithProperText: essayObjects?.pagesContentMapWithProperText,
+      pagesContentMapWithProperText:
+        essayObjects?.pagesContentMapWithProperText,
     };
   } catch (error) {
     logger.error(`Error found while reading textract ${error}`);
@@ -838,27 +948,6 @@ const getStudentsHandwritingLog = async (ddbClient, uploadID) => {
   }
 };
 
-/**
- * This method deletes the handwriting and studentHandwriting records received in the array.
- */
-const deleteHandwritingLogs = async (ddbClient, studentHandwritingLogs) => {
-  const studentHandwritingLogIDs = studentHandwritingLogs.map((log) => log.id);
-  const handwritingLogIDs = studentHandwritingLogs.map((log) => log.uploadID);
-  for (let index = 0; index < studentHandwritingLogIDs.length; index++) {
-    const studentHandwritingLogID = studentHandwritingLogIDs[index];
-    await deleteRecord(
-      ddbClient,
-      studentHandwritingLogID,
-      STUDENT_HANDWRITING_LOG
-    );
-  }
-
-  for (let index = 0; index < handwritingLogIDs.length; index++) {
-    const handwritingLogID = handwritingLogIDs[index];
-    await deleteRecord(ddbClient, handwritingLogID, HANDWRITING_LOG);
-  }
-};
-
 const deleteRecord = async (ddbClient, id, tableName) => {
   let params;
   if (id) {
@@ -883,6 +972,31 @@ const deleteRecord = async (ddbClient, id, tableName) => {
       )}`
     );
     return false;
+  }
+};
+
+/**
+ * This method deletes the handwriting and studentHandwriting records received in the array.
+ */
+const deleteHandwritingLogs = async (ddbClient, studentHandwritingLogs) => {
+  const studentHandwritingLogIDs = studentHandwritingLogs.map((log) => log.id);
+  const handwritingLogIDs = studentHandwritingLogs.map((log) => log.uploadID);
+  for (let index = 0; index < studentHandwritingLogIDs.length; index++) {
+    const studentHandwritingLogID = studentHandwritingLogIDs[index];
+    await deleteRecord(
+      ddbClient,
+      studentHandwritingLogID,
+      STUDENT_HANDWRITING_LOG
+    );
+  }
+
+  for (let index = 0; index < handwritingLogIDs.length; index++) {
+    const handwritingLogID = handwritingLogIDs[index];
+    // checking that the handwriting log (parent) does not have other related records that are kept and therefore this ID cannot be deleted.
+    const sHlogs = await getStudentsHandwritingLog(ddbClient, handwritingLogID);
+    if (!sHlogs || sHlogs?.length <= 0) {
+      await deleteRecord(ddbClient, handwritingLogID, HANDWRITING_LOG);
+    }
   }
 };
 

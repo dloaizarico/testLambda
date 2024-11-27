@@ -1,5 +1,3 @@
-const path = require("path");
-require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
 const { SSMClient, GetParametersCommand } = require("@aws-sdk/client-ssm");
@@ -24,6 +22,96 @@ const HANDWRITINGLOG_TABLE_NAME = "HandwritingLog";
 const STUDENTS_HANDWRITINGLOG_TABLE_NAME = "StudentHandwritingLog";
 const QUEUE_PAYLOAD_TABLE_NAME = "QueuePayload";
 const MATCHED_RECORD_STATUS = "MATCHED";
+const ARCHIVED_RECORD_STATUS = "ARCHIVED";
+const isWritemark2FeatureKey = "isWritemark2Active";
+const FEATURE_FLAG_SCHOOL_TABLE_NAME = "ApplicationFeatureFlagSchool";
+const FEATURE_FLAG_GLOBAL_TABLE_NAME = "ApplicationFeatureFlagGlobal";
+
+const taskTypes = {
+  NARRATIVE: "NARRATIVE",
+  PERSUASIVE: "PERSUASIVE",
+  UKWMRubric: "UKWMRUBRIC",
+};
+
+const AmplifyTaskType = {
+  PERSUASIVE: "Persuasive",
+  NARRATIVE: "Narrative",
+  UKWMRubric: "UKWMRubric",
+  "AUWM-GPT4o-Narrative": "Narrative",
+  "AUWM-GPT4o-Persuasive": "Persuasive",
+};
+
+const llmConfigsKeys = {
+  NARRATIVE: "NARRATIVE",
+  PERSUASIVE: "PERSUASIVE",
+  UKWMRUBRIC: "UKWMRubric",
+  NARRATIVE_WM2: "AUWM-GPT4o-Narrative",
+  PERSUASIVE_WM2: "AUWM-GPT4o-Persuasive",
+};
+
+const getFeatureFlagBySchool = async (ddbClient, featureKey, schoolID) => {
+  const params = {
+    TableName: `${FEATURE_FLAG_GLOBAL_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+    IndexName: "byFeatureKey",
+    KeyConditionExpression: "featureKey = :featureKey",
+    ExpressionAttributeValues: {
+      ":featureKey": featureKey,
+    },
+  };
+
+  console.log(params);
+
+  /**
+   * This method validates the current value of a feature flag, if it's false or does not exist as a record,
+   * it will validate the value per school.
+   * @returns
+   */
+  const validateFeatureFlagPerSchool = async () => {
+    const params = {
+      TableName: `${FEATURE_FLAG_SCHOOL_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+      IndexName: "byFeatureKey",
+      KeyConditionExpression: "featureKey = :featureKey",
+      FilterExpression: "schoolID = :schoolID",
+      ExpressionAttributeValues: {
+        ":featureKey": featureKey,
+        ":schoolID": schoolID,
+      },
+    };
+    console.log(params);
+    const queryResult = await ddbClient.query(params).promise();
+    console.log("1-------------------->",queryResult);
+    if (queryResult?.Items && queryResult.Items.length > 0) {
+      return queryResult.Items[0]?.featureValue;
+    } else {
+      return false;
+    }
+  };
+
+  
+
+  try {
+    const queryResult = await ddbClient.query(params).promise();
+    console.log("2-------------------->",queryResult);
+    if (queryResult?.Items && queryResult.Items.length > 0) {
+      const featureFlagValue = queryResult.Items[0]?.featureValue;
+      if (featureFlagValue) {
+        return featureFlagValue;
+      } else {
+        return await validateFeatureFlagPerSchool();
+      }
+    } else {
+      return await validateFeatureFlagPerSchool();
+    }
+  } catch (error) {
+    logger.info(
+      "The query to know the current status of the feature ID is not determined.  \n"
+    );
+    logger.error(
+      `error while fetching the feature flag value ${JSON.stringify(error)}`
+    );
+    return null;
+  }
+};
 
 /**
  * It fetches the payload stored in dynamo to process.
@@ -68,7 +156,7 @@ const updateQueuePayloadToRead = async (ddbClient, payloadID) => {
     let result = await ddbClient.update(params).promise();
     return result;
   } catch (error) {
-    logToWinstom("error updating schoolStudent", error);
+    logger.debug(`error updating schoolStudent, ${error}`);
     return error;
   }
 };
@@ -212,8 +300,6 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
   // Get existing logs for both tables for the current activity.
   const { handwritingLogs, studentHandwritingLogs } =
     await getCurrentLogsByActivity(ddbClient, activityID);
-
-  console.log(handwritingLogs, studentHandwritingLogs);
 
   // Archiving handwriting logs.
   for (let index = 0; index < handwritingLogs.length; index++) {
@@ -405,7 +491,10 @@ const getCurrentLogsByActivity = async (ddbClient, activityID) => {
     } while (typeof params.ExclusiveStartKey !== "undefined");
 
     handwritingLogs = handwritingLogs?.filter(
-      (HWLog) => HWLog.recordState !== MATCHED_RECORD_STATUS
+      (HWLog) =>
+        ![MATCHED_RECORD_STATUS, ARCHIVED_RECORD_STATUS].includes(
+          HWLog.recordState
+        )
     );
 
     for (let index = 0; index < handwritingLogs.length; index++) {
@@ -451,7 +540,10 @@ const getStudentHandwritingLogsByLogParentID = async (
       params.ExclusiveStartKey = queryResult.LastEvaluatedKey;
     } while (typeof params.ExclusiveStartKey !== "undefined");
     return studentHandwritingLogs?.filter(
-      (sHWL) => sHWL.recordState !== MATCHED_RECORD_STATUS
+      (sHWL) =>
+        ![MATCHED_RECORD_STATUS, ARCHIVED_RECORD_STATUS].includes(
+          sHWL.recordState
+        )
     );
   } catch (error) {
     logger.error(
@@ -463,12 +555,20 @@ const getStudentHandwritingLogsByLogParentID = async (
   }
 };
 
+function getSchoolYear() {
+  if (process.env.REGION === "eu-west-2" && new Date().getMonth() >= 7) {
+    return new Date().getFullYear() + 1;
+  } else {
+    return new Date().getFullYear();
+  }
+}
+
 const getToken = async (activity, studentID) => {
   const schoolStudentQueryInput = {
     schoolID: activity.schoolID,
     schoolYearStudentID: {
       eq: {
-        schoolYear: new Date().getFullYear(),
+        schoolYear: getSchoolYear(),
         studentID: studentID,
       },
     },
@@ -527,6 +627,12 @@ const submitFinalEssaysAfterMatching = async (
       ) {
         const token = await getToken(activity, essay.studentID);
         if (token) {
+          const isWritemark2Activated = await getFeatureFlagBySchool(
+            ddbClient,
+            isWritemark2FeatureKey,
+            activity.schoolID
+          );
+
           const bearerToken = `Bearer ${token}`;
           let essayId;
           // If the essay was not created before for that student, it's created.
@@ -535,21 +641,15 @@ const submitFinalEssaysAfterMatching = async (
               activity,
               prompt,
               essay.studentID,
+              isWritemark2Activated ? essay.essayFromTextract : null,
+              isWritemark2Activated,
               ENDPOINT,
               bearerToken
             );
           } else {
             essayId = essay.essayID;
           }
-
           if (essayId) {
-            // Calls faculty, submits the essay again and update the log.
-            await saveEssayText(
-              essayId,
-              essay.essayFromTextract,
-              ENDPOINT,
-              bearerToken
-            );
             await submitEssay(essayId, ENDPOINT, bearerToken);
             await updateStudentHandwritingLog(
               ddbClient,
@@ -793,10 +893,33 @@ const getTokenForAuthentication = async (email) => {
   }
 };
 
+const defineProperTaskTypeForEssay = (
+  promptTaskType,
+  isWritemark2Activated
+) => {
+  if (promptTaskType === taskTypes.NARRATIVE && isWritemark2Activated) {
+    return llmConfigsKeys.NARRATIVE_WM2;
+  }
+  if (promptTaskType === taskTypes.NARRATIVE && !isWritemark2Activated) {
+    return llmConfigsKeys.NARRATIVE;
+  }
+  if (promptTaskType === taskTypes.PERSUASIVE && isWritemark2Activated) {
+    return llmConfigsKeys.PERSUASIVE_WM2;
+  }
+  if (promptTaskType === taskTypes.PERSUASIVE && !isWritemark2Activated) {
+    return llmConfigsKeys.PERSUASIVE;
+  }
+  if (promptTaskType === taskTypes.UKWMRubric) {
+    return llmConfigsKeys.UKWMRUBRIC;
+  }
+};
+
 const createEssay = async (
   activity,
   prompt,
   studentID,
+  essayText,
+  isWritemark2Activated,
   ENDPOINT,
   bearerToken
 ) => {
@@ -808,9 +931,14 @@ const createEssay = async (
     schoolId: activity?.schoolID,
     studentId: studentID,
     taskDetails: {
-      taskType: prompt?.taskType?.toUpperCase(),
+      taskType: defineProperTaskTypeForEssay(
+        prompt?.taskType?.toUpperCase(),
+        isWritemark2Activated
+      ),
       essayPrompt: prompt?.promptName,
+      modelType: isWritemark2Activated ? "V2" : "V1",
     },
+    essayText,
   };
 
   try {
@@ -889,25 +1017,25 @@ const deleteEssay = async (essayId, ENDPOINT, bearerToken) => {
 };
 
 // It save the text of the essay.
-const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
-  const url = `${ENDPOINT}essay/${essayId}`;
+// const saveEssayText = async (essayId, text, ENDPOINT, bearerToken) => {
+//   const url = `${ENDPOINT}essay/${essayId}`;
 
-  try {
-    const result = await axios.put(url, JSON.stringify({ essayText: text }), {
-      headers: {
-        "Content-Type": "application/json;charset=UTF-8",
-        authorization: bearerToken,
-      },
-    });
-    logger.debug(`essayId, ${result?.data?.essayId}`);
-    return result?.data?.essayId;
-  } catch (error) {
-    const { message: errorMessage } = errorHandler(error);
-    logger.debug(
-      `There was an error while trying to create the essay: ${errorMessage}`
-    );
-  }
-};
+//   try {
+//     const result = await axios.put(url, JSON.stringify({ essayText: text }), {
+//       headers: {
+//         "Content-Type": "application/json;charset=UTF-8",
+//         authorization: bearerToken,
+//       },
+//     });
+//     logger.debug(`essayId, ${result?.data?.essayId}`);
+//     return result?.data?.essayId;
+//   } catch (error) {
+//     const { message: errorMessage } = errorHandler(error);
+//     logger.debug(
+//       `There was an error while trying to create the essay: ${errorMessage}`
+//     );
+//   }
+// };
 
 // It submits the student essay after creating and saving the text.
 const submitEssay = async (essayId, ENDPOINT, bearerToken) => {
@@ -942,7 +1070,7 @@ module.exports = {
   createEssay,
   getActivity,
   updateStudentHandwritingLog,
-  saveEssayText,
+  // saveEssayText,
   submitEssay,
   getQueuePayloadByID,
   updateQueuePayloadToRead,

@@ -1,0 +1,16 @@
+BUCKET_FOR_TEXTRACT=bpedsysuserstorage120105-ukdevelop
+ENV=ukdevelop
+REGION=eu-west-2
+TEXTRACT_ROLE_ARN=arn:aws:iam::990939205853:role/amplify-bpedsys-ukdevelop-ElastikTextractRoleCDKAA-8CPIUB7ZLDME
+TEXTRACT_TOPIC_ARN=arn:aws:sns:eu-west-2:990939205853:sns-topic-textractHandWriting-bpedsys-ukdevelop
+API_BPEDSYSGQL_GRAPHQLAPIENDPOINTOUTPUT=https://ss4hxdeznbarpbar6vez23gcvm.appsync-api.eu-west-2.amazonaws.com/graphql
+API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT=vejx3fdp5vcuvct2mexugy7adq
+API_BPEDSYSGQL_GRAPHQLAPIIDOUTPU=vejx3fdp5vcuvct2mexugy7adq
+BUCKET=bpedsysuserstorage120105-ukdevelop
+COGNITO_STUDENT_PASSWORD=/amplify/d2qh47q736wr2u/ukdevelop/AMPLIFY_WAMHandwritingProcessorFromTextract_COGNITO_STUDENT_PASSWORD
+AUTH_BPEDSYSAUTH_APPCLIENTIDWEB=65k24rpr15ii43qllc58riargu
+COGNITO_USERNAME=studentfaculty@bestperformancedevau
+AUTHENTICATION_KEY=/amplify/d2qh47q736wr2u/ukdevelop/AMPLIFY_bpedsysauthCreateAuthChallenge_AUTHENTICATION_KEY
+AUTH_BPEDSYSAUTH_USERPOOLID=eu-west-2_HZ9FLYda4
+ENV_SUFFIX=vejx3fdp5vcuvct2mexugy7adq
+USER_POOL=eu-west-2_HZ9FLYda4
