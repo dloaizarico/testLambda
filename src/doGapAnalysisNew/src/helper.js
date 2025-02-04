@@ -1,4 +1,5 @@
 const path = require("path");
+const event = require("./event.json");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const ACCODE_MAPPING_TABLE_NAME = `AcCodeMapping-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`;
 

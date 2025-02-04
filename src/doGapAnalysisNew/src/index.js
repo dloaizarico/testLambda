@@ -1,4 +1,5 @@
 const path = require("path");
+const event = require("./event.json");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 /* Amplify Params - DO NOT EDIT
 	API_BPEDSYSGQL_GRAPHQLAPIENDPOINTOUTPUT
@@ -23,8 +24,6 @@ const dayjs = require("dayjs");
 
 const FORMATTED = true;
 const UNFORMATTED = false;
-
-const event = require("./event-prod.json");
 
 const {
   getTestResultsByTestByStudentByTestDate, // Frank's GA only
@@ -200,22 +199,9 @@ function doGapAnalysis(learningAreas, data, formatted) {
     .filter((g) => g.summary.filter((s) => s.incorrectCodes > 0).length > 0);
 }
 
-
 async function getStudentTestResults(studentID, tests, mappingMap) {
   let response = [];
   let promises = [];
-  // console.log("studentID", studentID);
-
-  const testsC = tests.map((test) => ({
-    testID: test.testID,
-    date: test.testDate,
-  }));
-  // if(studentID==="817ed253-3939-444f-87c9-33f16aeda9a2"){
-  //   console.log(
-  //     "tests",
-  //     JSON.stringify(testsC)
-  //   );
-  // }
 
   for (let index = 0; index < tests.length; index++) {
     const test = tests[index];
@@ -256,62 +242,13 @@ async function getStudentTestResults(studentID, tests, mappingMap) {
   }
 
   const data = await Promise.all(promises);
-  console.log(`getting test result by student by test date. ${data?.length}`);
   response = _.flatten(data);
-  console.log(`response ${response?.length}`);
   // For each result answer, taking the test question related and the accode and find the accode mappings to the new curriculum, then assign it to the final return object.
   for (let index = 0; index < response.length; index++) {
     const result = response[index];
     const codeMappings = mappingMap.get(result?.testQuestion?.acCode.id);
     result.testQuestion.acCode.codeMappings = { items: codeMappings };
   }
-  return response;
-}
-
-async function getClassTestResults(classroomID, tests, mappingMap) {
-  let response = [];
-
-  try {
-    const input = {
-      classroomID,
-    };
-
-    try {
-      const {
-        data: {
-          getStudentsByClassroom: { items },
-        },
-      } = await request({
-        query: getClassroomStudentLinks,
-        variables: input,
-      });
-
-      if (items.length > 0) {
-        let promises = [];
-
-        logger.debug(`${items.length} items to process`);
-
-        for (let index = 0; index < items.length; index++) {
-          const classStudent = items[index];
-          const promise = new Promise((resolve) => {
-            console.log(classStudent.studentID);
-            resolve(
-              getStudentTestResults(classStudent.studentID, tests, mappingMap)
-            );
-          });
-          promises.push(promise);
-        }
-
-        const resp = await Promise.all(promises);
-        response = _.flatten(resp);
-      }
-    } catch (error) {
-      logger.error(`error getting class students ${input}, ${error}`);
-    }
-  } catch (error) {
-    logger.error(`error getting class test results, ${classroomID}, ${error}`);
-  }
-
   return response;
 }
 
@@ -661,33 +598,6 @@ const handler = async (event) => {
           logger.error(`error doing classroom Gap Analysis ${error}`);
           return error;
         }
-
-        // if the no of students in Class/Focus Group is < some cutoff (say 20) we still use Franks method
-        // if (resp.students.items.length < 20) {
-        //   try {
-        //     results = await getClassTestResults(
-        //       classroomID,
-        //       tests,
-        //       mappingMap
-        //     );
-        //     logger.debug(`got the class test results - method 1`);
-        //     response = doGapAnalysis(learningAreas, results, UNFORMATTED);
-        //     logger.debug(`got the gap analysis`);
-        //     logger.debug(JSON.stringify(response));
-        //   } catch (error) {
-        //     logger.error(`error getting class resuts ${error}`);
-        //     return error;
-        //   }
-
-        //   // let responseObj = {
-        //   //   statusCode: 200,
-        //   //   headers,
-        //   //   body: JSON.stringify(response),
-        //   // };
-        //   logger.error(`response: ${formatResponse(response)}`);
-        //   return formatResponse(response);
-        // }
-        // too many students in class so go this route
         // resp is one schoolID and an array of students
         resp.students.items.forEach((item) => {
           studentIDs.push(item.studentID);

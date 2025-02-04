@@ -1,3 +1,6 @@
+const path = require("path");
+const event = require("./event.json");
+require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const winston = require("winston");
 const { format } = require("logform");
 const util = require("util");
