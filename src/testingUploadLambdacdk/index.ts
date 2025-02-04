@@ -1,4 +1,3 @@
-import { Handler } from "aws-lambda";
 import { batchWriteStudentTests } from "./batchWriteToDynamoDB";
 import { s3 } from "./clients";
 import { clearCurrentLog, logger, uploadInfoLogToS3 } from "./logger";
@@ -10,14 +9,18 @@ interface Event {
   readonly fileKeys: string[];
 }
 
-export const handler: Handler<Event> = async (event) => {
+export const handler = async (event: any) => {
   try {
     for (const fileKey of new Set(event.fileKeys)) {
       const csvData = await readCsvFromS3(event.bucketName, fileKey);
       logger.info("Found %d rows in file at '%s'", csvData.length, fileKey);
 
       const fileResults = await processStudentTests(csvData);
-      logger.info("Found %d results, %d test uploads", fileResults.numberOfProcessedResults, fileResults.testUploadItems.length);
+      logger.info(
+        "Found %d results, %d test uploads",
+        fileResults.numberOfProcessedResults,
+        fileResults.testUploadItems.length
+      );
       await batchWriteStudentTests(fileResults);
     }
 
@@ -29,12 +32,21 @@ export const handler: Handler<Event> = async (event) => {
       body: JSON.stringify({ message: "Data processed successfully" }),
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
     return {
       statusCode: 500,
-      body: JSON.stringify({ message: "Error processing CSVs", error: errorMessage }),
+      body: JSON.stringify({
+        message: "Error processing CSVs",
+        error: errorMessage,
+      }),
     };
   } finally {
     clearCurrentLog();
   }
 };
+
+handler({
+  bucketName: "testsdustack-tmpdatauploadsbucket5dbb84fb-8sk1x3nntder",
+  fileKeys: ["East Kimberley College - 2023 Westwood Y4 .csv"],
+});

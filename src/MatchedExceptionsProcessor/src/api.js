@@ -15,6 +15,7 @@ const {
 } = require("./graphql/bpqueries");
 const { request } = require("./appSyncRequest");
 const { logger } = require("./logger");
+// const { cleanContent } = require('/opt/Utilities');
 
 const ACTIVITY_TABLE_NAME = "Activity";
 const PROMPT_TABLE_NAME = "Prompt";
@@ -50,24 +51,8 @@ const llmConfigsKeys = {
 };
 
 const getFeatureFlagBySchool = async (ddbClient, featureKey, schoolID) => {
-  const params = {
-    TableName: `${FEATURE_FLAG_GLOBAL_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
-    IndexName: "byFeatureKey",
-    KeyConditionExpression: "featureKey = :featureKey",
-    ExpressionAttributeValues: {
-      ":featureKey": featureKey,
-    },
-  };
-
-  console.log(params);
-
-  /**
-   * This method validates the current value of a feature flag, if it's false or does not exist as a record,
-   * it will validate the value per school.
-   * @returns
-   */
-  const validateFeatureFlagPerSchool = async () => {
-    const params = {
+  try {
+    let params = {
       TableName: `${FEATURE_FLAG_SCHOOL_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
       IndexName: "byFeatureKey",
       KeyConditionExpression: "featureKey = :featureKey",
@@ -77,30 +62,27 @@ const getFeatureFlagBySchool = async (ddbClient, featureKey, schoolID) => {
         ":schoolID": schoolID,
       },
     };
-    console.log(params);
-    const queryResult = await ddbClient.query(params).promise();
-    console.log("1-------------------->",queryResult);
+
+    let queryResult = await ddbClient.query(params).promise();
     if (queryResult?.Items && queryResult.Items.length > 0) {
       return queryResult.Items[0]?.featureValue;
     } else {
-      return false;
-    }
-  };
+      params = {
+        TableName: `${FEATURE_FLAG_GLOBAL_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
+        IndexName: "byFeatureKey",
+        KeyConditionExpression: "featureKey = :featureKey",
+        ExpressionAttributeValues: {
+          ":featureKey": featureKey,
+        },
+      };
 
-  
+      queryResult = await ddbClient.query(params).promise();
 
-  try {
-    const queryResult = await ddbClient.query(params).promise();
-    console.log("2-------------------->",queryResult);
-    if (queryResult?.Items && queryResult.Items.length > 0) {
-      const featureFlagValue = queryResult.Items[0]?.featureValue;
-      if (featureFlagValue) {
-        return featureFlagValue;
+      if (queryResult?.Items && queryResult.Items.length > 0) {
+        return queryResult.Items[0]?.featureValue;
       } else {
-        return await validateFeatureFlagPerSchool();
+        return null;
       }
-    } else {
-      return await validateFeatureFlagPerSchool();
     }
   } catch (error) {
     logger.info(
@@ -153,7 +135,7 @@ const updateQueuePayloadToRead = async (ddbClient, payloadID) => {
   };
 
   try {
-    let result = await ddbClient.update(params).promise();
+    // let result = await ddbClient.update(params).promise();
     return result;
   } catch (error) {
     logger.debug(`error updating schoolStudent, ${error}`);
@@ -367,7 +349,7 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
         TableName: `${HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
         Item: input,
       };
-      const result = await ddbClient.put(params).promise();
+      // const result = await ddbClient.put(params).promise();
 
       const studentHandwritingLogs = [];
       // Creating new studentHandwritingLogs.
@@ -430,7 +412,7 @@ const UpdateAndCreateLogsForActivityAfterMatching = async (
             TableName: `${STUDENTS_HANDWRITINGLOG_TABLE_NAME}-${process.env.API_BPEDSYSGQL_GRAPHQLAPIIDOUTPUT}-${process.env.ENV}`,
             Item: studentHandwritingLogInput,
           };
-          await ddbClient.put(params).promise();
+          // await ddbClient.put(params).promise();
           studentHandwritingLogs.push(studentHandwritingLogInput);
         } else {
           logger.debug(
@@ -464,7 +446,7 @@ const updateLogRecordStatus = async (ddbClient, id, tableName) => {
       },
     };
 
-    const result = await ddbClient.update(params).promise();
+    // const result = await ddbClient.update(params).promise();
     logger.debug("Record updated", result);
   } catch (error) {
     logger.error(`error when updating the log record ${JSON.stringify(error)}`);
@@ -632,25 +614,25 @@ const submitFinalEssaysAfterMatching = async (
             isWritemark2FeatureKey,
             activity.schoolID
           );
-
+          logger.debug(`here feature flag -------------------------------------------------> ${isWritemark2Activated}`);
           const bearerToken = `Bearer ${token}`;
           let essayId;
           // If the essay was not created before for that student, it's created.
           if (!essay.essayID) {
-            essayId = await createEssay(
-              activity,
-              prompt,
-              essay.studentID,
-              isWritemark2Activated ? essay.essayFromTextract : null,
-              isWritemark2Activated,
-              ENDPOINT,
-              bearerToken
-            );
+            // essayId = await createEssay(
+            //   activity,
+            //   prompt,
+            //   essay.studentID,
+            //   cleanContent(essay.essayFromTextract),
+            //   isWritemark2Activated==="true",
+            //   ENDPOINT,
+            //   bearerToken
+            // );
           } else {
             essayId = essay.essayID;
           }
           if (essayId) {
-            await submitEssay(essayId, ENDPOINT, bearerToken);
+            // await submitEssay(essayId, ENDPOINT, bearerToken);
             await updateStudentHandwritingLog(
               ddbClient,
               essay.id,
@@ -692,7 +674,7 @@ const submitFinalEssaysAfterMatching = async (
         const token = await getToken(activity, removedStudent.studentID);
         if (token) {
           const bearerToken = `Bearer ${token}`;
-          await deleteEssay(removedStudent.essayID, ENDPOINT, bearerToken);
+          // await deleteEssay(removedStudent.essayID, ENDPOINT, bearerToken);
         }
       }
     }
@@ -897,19 +879,27 @@ const defineProperTaskTypeForEssay = (
   promptTaskType,
   isWritemark2Activated
 ) => {
-  if (promptTaskType === taskTypes.NARRATIVE && isWritemark2Activated) {
+  if (
+    promptTaskType === taskTypes.NARRATIVE &&
+    isWritemark2Activated &&
+    process.env.REGION === "ap-southeast-2"
+  ) {
     return llmConfigsKeys.NARRATIVE_WM2;
   }
   if (promptTaskType === taskTypes.NARRATIVE && !isWritemark2Activated) {
     return llmConfigsKeys.NARRATIVE;
   }
-  if (promptTaskType === taskTypes.PERSUASIVE && isWritemark2Activated) {
+  if (
+    promptTaskType === taskTypes.PERSUASIVE &&
+    isWritemark2Activated &&
+    process.env.REGION === "ap-southeast-2"
+  ) {
     return llmConfigsKeys.PERSUASIVE_WM2;
   }
   if (promptTaskType === taskTypes.PERSUASIVE && !isWritemark2Activated) {
     return llmConfigsKeys.PERSUASIVE;
   }
-  if (promptTaskType === taskTypes.UKWMRubric) {
+  if (isWritemark2Activated && region === "eu-west-2") {
     return llmConfigsKeys.UKWMRUBRIC;
   }
 };
@@ -924,6 +914,7 @@ const createEssay = async (
   bearerToken
 ) => {
   const url = `${ENDPOINT}essay/`;
+  logger.debug(`Writemark2 activated ------------------------------->${isWritemark2Activated}`);
 
   const body = {
     activityId: activity?.id,
@@ -940,7 +931,11 @@ const createEssay = async (
     },
     essayText,
   };
-
+  logger.debug(
+    `essay to send---------------------------------------------->: ${JSON.stringify(
+      body
+    )}`
+  );
   try {
     const result = await axios.post(url, JSON.stringify(body), {
       headers: {
@@ -989,7 +984,7 @@ const updateStudentHandwritingLog = async (
           },
     };
 
-    const result = await ddbClient.update(params).promise();
+    // const result = await ddbClient.update(params).promise();
     logger.debug("result", result);
   } catch (error) {
     logger.error(

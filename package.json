@@ -34,7 +34,7 @@
     "@types/node": "^22.10.0",
     "aws-sdk": "^2.1357.0",
     "cross-env": "^7.0.3",
-    "dotenv": "^16.0.1",
+    "dotenv": "^16.4.5",
     "eslint": "^7.32.0 || ^8.2.0",
     "eslint-config-airbnb": "19.0.4",
     "eslint-config-airbnb-base": "^15.0.0",

@@ -1,4 +1,5 @@
 const path = require("path");
+const event = require("./event.json");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 const AWS = require("aws-sdk");
 AWS.config.update({ region: process.env.REGION });
@@ -14,13 +15,12 @@ const { request } = require("./appSyncRequest");
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { processMatchedExceptions } = require("./matchedExceptionsHelper");
 const { createNotification } = require("./graphql/bpmutations");
-const event = require("./event.json");
+
 // Constants for notifications.
 const sysType = "notify";
 const read = false;
 const sender = "admin@elastik.com";
 const expiryDaysForNotification = 2;
-
 
 /**
  * @type {import('@types/aws-lambda').APIGatewayProxyHandler}
@@ -98,9 +98,6 @@ const handler = async (event) => {
           logger.error("The payload had been processed already.");
           notificationMessage = genericError;
         } else {
-
-          console.log("pase el payload", payloadData);
-
           // Match the exceptions.
           result = await processMatchedExceptions(
             ddbClient,
@@ -110,7 +107,7 @@ const handler = async (event) => {
             prompt,
             activity
           );
-          // await updateQueuePayloadToRead(ddbClient, message?.payloadID);
+          await updateQueuePayloadToRead(ddbClient, message?.payloadID);
         }
       }
       // Check if there are any error messages.
@@ -150,5 +147,4 @@ const handler = async (event) => {
   }
   return { batchItemFailures };
 };
-
 handler(event);

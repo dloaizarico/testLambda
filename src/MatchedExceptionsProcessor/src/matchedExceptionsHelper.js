@@ -41,15 +41,28 @@ const processMatchedExceptions = async (
       fileUrlsPerStudent
     );
 
-    await submitFinalEssaysAfterMatching(
-      ddbClient,
-      activity,
-      prompt,
-      ENDPOINT,
-      studentHandwritingLogs,
-      removedStudents,
+    console.log(
+      "studentHandwritingLogs---------------------------->",
+      studentHandwritingLogs
+    );
+    console.log(
+      "removedStudents---------------------------->",
+      removedStudents
+    );
+    console.log(
+      "archivedMatchedStudentIDs---------------------------->",
       archivedMatchedStudentIDs
     );
+
+    // await submitFinalEssaysAfterMatching(
+    //   ddbClient,
+    //   activity,
+    //   prompt,
+    //   ENDPOINT,
+    //   studentHandwritingLogs,
+    //   removedStudents,
+    //   archivedMatchedStudentIDs
+    // );
 
     return {
       statusCode: 200,

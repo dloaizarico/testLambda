@@ -1,7 +1,7 @@
 import path from "path";
 import dotenv from "dotenv";
 // Load the `.env` file located at "../../../../.env"
-dotenv.config({ path: path.resolve(__dirname, "../../env") });
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 import { v4 as uuidv4 } from "uuid";
 import { dynamoDb } from "./clients";
 import { logger } from "./logger";

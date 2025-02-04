@@ -1,7 +1,10 @@
 import path from "path";
 import dotenv from "dotenv";
+if (!dotenv) {
+  throw new Error('dotenv is not defined!');
+}
 // Load the `.env` file located at "../../../../.env"
-dotenv.config({ path: path.resolve(__dirname, "../../env") });
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 import { DeleteRequest, PutRequest } from "@aws-sdk/client-dynamodb";
 import { NativeAttributeValue } from "@aws-sdk/lib-dynamodb";
 import { dynamoDb } from "./clients";
