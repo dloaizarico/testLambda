@@ -1,5 +1,5 @@
 const path = require("path");
-const event = require("./event.json");
+const event = require("../event.json");
 require("dotenv").config({ path: path.resolve(__dirname, "../../../.env") });
 /* Amplify Params - DO NOT EDIT
 	API_BPEDSYSGQL_GRAPHQLAPIENDPOINTOUTPUT
@@ -27,7 +27,7 @@ const { getSchoolDataFromClassroomID } = require("./helper.js");
 const { getStudentsInCohort } = require("./helper.js");
 
 //**Lambda Handler**
-exports.handler = async (event) => {
+const handler = async (event) => {
   try {
     logger.debug(`Event received: ${event?.body}`);
     const inputData = JSON.parse(event.body);
@@ -112,3 +112,5 @@ exports.handler = async (event) => {
     };
   }
 };
+
+handler(event);
